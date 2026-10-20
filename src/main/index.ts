@@ -1,0 +1,254 @@
+import { app, BrowserWindow, ipcMain, screen, type Display, type IpcMainEvent } from 'electron'
+import { join } from 'node:path'
+import {
+  Channel,
+  isControlToOutput,
+  isMainRequest,
+  isOutputCommand,
+  isOutputToControl,
+  type DisplayInfo,
+  type MainRequest,
+  type MainResponse,
+  type OutputWindowState,
+} from '@shared/protocol'
+
+let controlWin: BrowserWindow | null = null
+let outputWin: BrowserWindow | null = null
+let quitting = false
+
+function loadPage(win: BrowserWindow, page: 'control' | 'output'): void {
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  if (!app.isPackaged && devUrl) void win.loadURL(`${devUrl}/${page}/index.html`)
+  else void win.loadFile(join(__dirname, `../renderer/${page}/index.html`))
+}
+
+function lockDown(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.on('will-navigate', (e) => e.preventDefault())
+}
+
+function createControlWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 900,
+    minHeight: 600,
+    title: 'Veejus Control',
+    backgroundColor: '#14141a',
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/control.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  lockDown(win)
+  win.once('ready-to-show', () => win.show())
+  win.on('closed', () => {
+    controlWin = null
+    app.quit()
+  })
+  loadPage(win, 'control')
+  return win
+}
+
+function createOutputWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 960,
+    height: 540,
+    title: 'Veejus Output',
+    backgroundColor: '#000000',
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: join(__dirname, '../preload/output.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      // The output must keep rendering at full rate when it is not focused.
+      backgroundThrottling: false,
+    },
+  })
+  win.setMenu(null)
+  lockDown(win)
+  win.once('ready-to-show', () => {
+    win.show()
+    broadcastOutputState()
+  })
+
+  // Closing the output only hides it; the control window can show it again.
+  win.on('close', (e) => {
+    if (quitting) return
+    e.preventDefault()
+    if (win.isFullScreen()) win.setFullScreen(false)
+    win.hide()
+  })
+  win.on('closed', () => (outputWin = null))
+  win.on('enter-full-screen', broadcastOutputState)
+  win.on('leave-full-screen', broadcastOutputState)
+  win.on('show', broadcastOutputState)
+  win.on('hide', broadcastOutputState)
+  win.on('moved', broadcastOutputState)
+
+  // Esc leaves fullscreen, F11 toggles it. Handled here so it works whatever the page does;
+  // the page also forwards these keys as output commands for input that bypasses this hook.
+  win.webContents.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown') return
+    if (input.key === 'Escape' && win.isFullScreen()) {
+      e.preventDefault()
+      win.setFullScreen(false)
+    } else if (input.key === 'F11') {
+      e.preventDefault()
+      win.setFullScreen(!win.isFullScreen())
+    }
+  })
+
+  loadPage(win, 'output')
+  return win
+}
+
+function displayLabel(d: Display, index: number): string {
+  return d.label && d.label.trim() ? d.label : `Display ${index + 1}`
+}
+
+function listDisplays(): DisplayInfo[] {
+  const primaryId = screen.getPrimaryDisplay().id
+  return screen.getAllDisplays().map((d, i) => ({
+    id: d.id,
+    label: displayLabel(d, i),
+    width: d.size.width,
+    height: d.size.height,
+    scaleFactor: d.scaleFactor,
+    primary: d.id === primaryId,
+  }))
+}
+
+function outputState(): OutputWindowState {
+  if (!outputWin || outputWin.isDestroyed()) {
+    return { displayId: null, fullscreen: false, visible: false }
+  }
+  return {
+    displayId: screen.getDisplayMatching(outputWin.getBounds()).id,
+    fullscreen: outputWin.isFullScreen(),
+    visible: outputWin.isVisible(),
+  }
+}
+
+function broadcastOutputState(): void {
+  if (controlWin && !controlWin.isDestroyed()) {
+    controlWin.webContents.send(Channel.outputState, outputState())
+  }
+}
+
+function setFullscreenAndWait(win: BrowserWindow, target: boolean): Promise<void> {
+  if (win.isFullScreen() === target) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      win.removeListener('enter-full-screen', done)
+      win.removeListener('leave-full-screen', done)
+      resolve()
+    }, 1500)
+    if (target) win.once('enter-full-screen', done)
+    else win.once('leave-full-screen', done)
+    win.setFullScreen(target)
+  })
+}
+
+async function moveOutputToDisplay(displayId: number): Promise<void> {
+  const win = outputWin
+  if (!win) throw new Error('Output window is not available')
+  const display = screen.getAllDisplays().find((d) => d.id === displayId)
+  if (!display) throw new Error(`Unknown display ${displayId}`)
+
+  const wasFullscreen = win.isFullScreen()
+  await setFullscreenAndWait(win, false)
+  const area = display.workArea
+  const [w = 960, h = 540] = win.getSize()
+  const width = Math.min(w, area.width)
+  const height = Math.min(h, area.height)
+  win.setBounds({
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + (area.height - height) / 2),
+    width,
+    height,
+  })
+  if (!win.isVisible()) win.show()
+  if (wasFullscreen) await setFullscreenAndWait(win, true)
+}
+
+async function handleMainRequest(req: MainRequest): Promise<MainResponse> {
+  switch (req.type) {
+    case 'listDisplays':
+      return { type: 'displays', displays: listDisplays() }
+    case 'getOutputState':
+      return { type: 'outputState', state: outputState() }
+    case 'moveOutputToDisplay':
+      await moveOutputToDisplay(req.displayId)
+      return { type: 'outputState', state: outputState() }
+    case 'setOutputFullscreen':
+      if (!outputWin) throw new Error('Output window is not available')
+      if (!outputWin.isVisible()) outputWin.show()
+      await setFullscreenAndWait(outputWin, req.fullscreen)
+      return { type: 'outputState', state: outputState() }
+    case 'showOutput':
+      if (!outputWin) outputWin = createOutputWindow()
+      outputWin.show()
+      return { type: 'outputState', state: outputState() }
+  }
+}
+
+function registerIpc(): void {
+  const fromControl = (e: IpcMainEvent) => !!controlWin && e.sender === controlWin.webContents
+  const fromOutput = (e: IpcMainEvent) => !!outputWin && e.sender === outputWin.webContents
+
+  // Renderer-to-renderer messages are validated, then forwarded unchanged.
+  ipcMain.on(Channel.toOutput, (e, msg: unknown) => {
+    if (!fromControl(e) || !isControlToOutput(msg)) return
+    outputWin?.webContents.send(Channel.toOutput, msg)
+  })
+
+  ipcMain.on(Channel.toControl, (e, msg: unknown) => {
+    if (!fromOutput(e) || !isOutputToControl(msg)) return
+    controlWin?.webContents.send(Channel.toControl, msg)
+  })
+
+  ipcMain.on(Channel.outputCommand, (e, cmd: unknown) => {
+    if (!fromOutput(e) || !isOutputCommand(cmd) || !outputWin) return
+    if (cmd.type === 'exitFullscreen') outputWin.setFullScreen(false)
+    else outputWin.setFullScreen(!outputWin.isFullScreen())
+  })
+
+  ipcMain.handle(Channel.mainRequest, async (e, req: unknown): Promise<MainResponse> => {
+    if (!controlWin || e.sender !== controlWin.webContents) {
+      return { type: 'error', message: 'Requests are only accepted from the control window' }
+    }
+    if (!isMainRequest(req)) return { type: 'error', message: 'Malformed request' }
+    try {
+      return await handleMainRequest(req)
+    } catch (err) {
+      return { type: 'error', message: err instanceof Error ? err.message : String(err) }
+    } finally {
+      broadcastOutputState()
+    }
+  })
+}
+
+app.whenReady().then(() => {
+  registerIpc()
+  controlWin = createControlWindow()
+  outputWin = createOutputWindow()
+  screen.on('display-added', broadcastOutputState)
+  screen.on('display-removed', broadcastOutputState)
+  screen.on('display-metrics-changed', broadcastOutputState)
+})
+
+app.on('before-quit', () => {
+  quitting = true
+})
+
+app.on('window-all-closed', () => app.quit())
