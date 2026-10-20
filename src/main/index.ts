@@ -1,9 +1,12 @@
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   dialog,
   ipcMain,
   screen,
+  session,
+  webContents,
   type Display,
   type IpcMainEvent,
 } from 'electron'
@@ -271,6 +274,39 @@ const OUTPUT_REQUESTS = new Set<MainRequest['type']>([
   'showOutput',
 ])
 
+/**
+ * Media permissions: only the output window may capture, and only audio. System-audio
+ * loopback (Windows) arrives through getDisplayMedia; main answers with the primary screen
+ * plus loopback audio, and the output discards the video track.
+ */
+function registerMediaPermissions(): void {
+  const isOutput = (wc: Electron.WebContents | null) =>
+    !!wc && !!outputWin && !outputWin.isDestroyed() && wc === outputWin.webContents
+
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    if (permission === 'media' && isOutput(wc)) {
+      const types = 'mediaTypes' in details ? (details.mediaTypes ?? []) : []
+      callback(types.every((t) => t === 'audio'))
+      return
+    }
+    callback(false)
+  })
+  session.defaultSession.setPermissionCheckHandler(
+    (wc, permission) => permission === 'media' && isOutput(wc),
+  )
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    const requester = request.frame ? (webContents.fromFrame(request.frame) ?? null) : null
+    if (!isOutput(requester) || process.platform !== 'win32') {
+      callback({})
+      return
+    }
+    desktopCapturer
+      .getSources({ types: ['screen'] })
+      .then((sources) => callback(sources[0] ? { video: sources[0], audio: 'loopback' } : {}))
+      .catch(() => callback({}))
+  })
+}
+
 function registerIpc(): void {
   const fromControl = (e: IpcMainEvent) => !!controlWin && e.sender === controlWin.webContents
   const fromOutput = (e: Pick<IpcMainEvent, 'sender'>) =>
@@ -312,6 +348,7 @@ function registerIpc(): void {
 
 app.whenReady().then(() => {
   handleMediaProtocol(library)
+  registerMediaPermissions()
   registerIpc()
   controlWin = createControlWindow()
   outputWin = createOutputWindow()

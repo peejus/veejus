@@ -18,6 +18,13 @@ export interface OutputTestState {
   settings: { loop: boolean; speed: number; fit: string }
   clipStates: Record<string, string>
   media: { readyClips: number; loadingClips: number; warmVideos: number; imageBytes: number }
+  audio: {
+    status: { state: string; label?: string; error?: string; sampleRate?: number }
+    onsetCounts: { low: number; high: number }
+    bands: number[]
+    rms: number
+    latencyMs: number
+  }
   current: {
     id: string
     kind: 'video' | 'image'
@@ -35,8 +42,8 @@ export interface AppHandles {
   output: Page
 }
 
-export async function launchApp(): Promise<AppHandles> {
-  const app = await electron.launch({ args: [MAIN] })
+export async function launchApp(extraArgs: string[] = []): Promise<AppHandles> {
+  const app = await electron.launch({ args: [MAIN, ...extraArgs] })
   const find = async (title: string) => {
     await expect
       .poll(async () => {

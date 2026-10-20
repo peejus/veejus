@@ -6,6 +6,19 @@
  */
 
 import type { ClipKind } from './mediaTypes'
+import {
+  isAnalysisSettings,
+  isAudioDeviceList,
+  isAudioMeters,
+  isAudioSource,
+  isAudioStatus,
+  type AnalysisSettings,
+  type AudioDevice,
+  type AudioMeters,
+  type AudioSource,
+  type AudioStatus,
+  type OnsetBand,
+} from './audio'
 
 /** IPC channel names. */
 export const Channel = {
@@ -64,6 +77,10 @@ export type ControlToOutput =
   | { type: 'setLayerSettings'; settings: LayerSettings }
   /** Ask the output to re-send every clip state and the current clip (e.g. after a UI reload). */
   | { type: 'requestStatus' }
+  /** Switch the analyzed audio input; null turns audio off. */
+  | { type: 'setAudioSource'; source: AudioSource | null }
+  | { type: 'setAnalysisSettings'; settings: AnalysisSettings }
+  | { type: 'requestAudioDevices' }
 
 export interface FrameStatsSnapshot {
   fps: number
@@ -101,6 +118,12 @@ export type OutputToControl =
   /** The layer was cleared: a one-shot clip finished, or it was stopped. */
   | { type: 'clipEnded'; id: string }
   | { type: 'mediaStats'; stats: MediaStats }
+  | { type: 'audioStatus'; status: AudioStatus }
+  | { type: 'audioDevices'; devices: AudioDevice[] }
+  /** ~30 per second while audio runs. */
+  | { type: 'audioMeters'; meters: AudioMeters }
+  /** Sent the moment an onset is detected. */
+  | { type: 'audioOnset'; band: OnsetBand; strength: number }
 
 /** Window commands the output page can ask main for (e.g. from its own key handling). */
 export type OutputCommand = { type: 'exitFullscreen' } | { type: 'toggleFullscreen' }
@@ -199,7 +222,12 @@ export function isControlToOutput(v: unknown): v is ControlToOutput {
       return isNonEmptyString(v.id) && isLayerSettings(v.settings)
     case 'stopClip':
     case 'requestStatus':
+    case 'requestAudioDevices':
       return true
+    case 'setAudioSource':
+      return v.source === null || isAudioSource(v.source)
+    case 'setAnalysisSettings':
+      return isAnalysisSettings(v.settings)
     case 'setLayerSettings':
       return isLayerSettings(v.settings)
     default:
@@ -238,6 +266,14 @@ export function isOutputToControl(v: unknown): v is OutputToControl {
       return isNonEmptyString(v.id)
     case 'mediaStats':
       return isMediaStats(v.stats)
+    case 'audioStatus':
+      return isAudioStatus(v.status)
+    case 'audioDevices':
+      return isAudioDeviceList(v.devices)
+    case 'audioMeters':
+      return isAudioMeters(v.meters)
+    case 'audioOnset':
+      return (v.band === 'low' || v.band === 'high') && isFiniteNum(v.strength)
     default:
       return false
   }

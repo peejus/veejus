@@ -1,6 +1,8 @@
 import { FrameStats } from '@core/frameStats'
 import { isControlToOutput, type OutputBridge, type Rgb } from '@shared/protocol'
 import { rgbToHex } from '@shared/color'
+import { BAND_NAMES } from '@shared/audio'
+import { AudioEngine } from './audio/audioEngine'
 import { ClipLayer } from './clipLayer'
 import { MediaManager } from './media/mediaManager'
 import { Stage } from './stage'
@@ -29,6 +31,13 @@ const layer = new ClipLayer(
   },
   { loop: true, speed: 1, fit: 'contain' },
 )
+
+const audio = new AudioEngine({
+  onStatus: (status) => bridge.sendToControl({ type: 'audioStatus', status }),
+  onMeters: (meters) => bridge.sendToControl({ type: 'audioMeters', meters }),
+  onOnset: (band, strength) => bridge.sendToControl({ type: 'audioOnset', band, strength }),
+  onDevices: (devices) => bridge.sendToControl({ type: 'audioDevices', devices }),
+})
 
 let background: Rgb = [0, 0, 0]
 let pendingBackgroundAck = false
@@ -68,8 +77,18 @@ bridge.onControlMessage((msg) => {
       }
       const cur = layer.current
       if (cur?.started) bridge.sendToControl({ type: 'clipStarted', id: cur.id, waitFrames: 0 })
+      bridge.sendToControl({ type: 'audioStatus', status: audio.currentStatus })
       break
     }
+    case 'setAudioSource':
+      void audio.setSource(msg.source)
+      break
+    case 'setAnalysisSettings':
+      audio.setSettings(msg.settings)
+      break
+    case 'requestAudioDevices':
+      void audio.listDevices()
+      break
   }
 })
 
@@ -104,7 +123,22 @@ function updateOverlay(): void {
     `clip   ${clipLine}\n` +
     `media  ${m.readyClips} ready, ${m.loadingClips} loading\n` +
     `       images ${(m.imageBytes / MB).toFixed(0)}/${(m.imageBudgetBytes / MB).toFixed(0)} MB, ` +
-    `videos ${m.warmVideos}/${m.warmVideoLimit} warm`
+    `videos ${m.warmVideos}/${m.warmVideoLimit} warm
+` +
+    audioOverlayText()
+}
+
+function audioOverlayText(): string {
+  const st = audio.currentStatus
+  if (st.state !== 'running') return `audio  ${st.state}${st.error ? `: ${st.error}` : ''}`
+  const bands = BAND_NAMES.map((n, i) => `${n[0]}${audio.snapshot.bands[i]!.toFixed(2)}`).join(' ')
+  return (
+    `audio  ${st.label} @ ${st.sampleRate} Hz, ~${audio.latencyMs.toFixed(0)} ms
+` +
+    `       ${bands}
+` +
+    `       kicks ${audio.onsetCounts.low}, highs ${audio.onsetCounts.high}`
+  )
 }
 
 function frame(now: number): void {
@@ -150,6 +184,13 @@ function frame(now: number): void {
       settings: layer.settings,
       clipStates: media.states(),
       media: media.stats(),
+      audio: {
+        status: audio.currentStatus,
+        onsetCounts: { ...audio.onsetCounts },
+        bands: Array.from(audio.snapshot.bands),
+        rms: audio.snapshot.rms,
+        latencyMs: audio.latencyMs,
+      },
       current: cur
         ? {
             id: cur.id,

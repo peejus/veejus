@@ -45,17 +45,42 @@
    - **A cold clip** loads first.
    - **Each frame**, the layer uploads the current frame to a texture: video frames via `requestVideoFrameCallback`, image frames via `FrameTimeline`. It then draws a premultiplied-alpha quad placed by `fitRect`.
 
+## Audio pipeline
+
+```
+ input (device getUserMedia | system loopback getDisplayMedia | synthesized test beat)
+   │  output window: AudioEngine (src/renderer/output/audio/audioEngine.ts)
+   ▼
+ MediaStreamSource / BufferSource ─▶ AudioWorkletNode "veejus-analysis" ─▶ gain 0 ─▶ destination
+                                       │ (audio thread: AudioAnalyzer from src/core/audio)
+                                       ├─ onset   (immediately, with detection delay)
+                                       ├─ bands   (every 2 hops, ~94/s) → AudioEngine.snapshot (visuals)
+                                       └─ meters  (~30/s, with 64-bin spectrum)
+   output main thread ──▶ control: audioOnset (immediately), audioMeters (30/s), audioStatus, audioDevices
+```
+
+- **`AudioAnalyzer`** (`src/core/audio/analyzer.ts`) is pure TypeScript and block-size independent. It runs a 1024-point FFT every 256 samples and produces:
+  - envelope-followed levels for 4 bands
+  - RMS and peak
+  - SuperFlux onsets for kicks (30–180 Hz) and snares/hats (2.5–16 kHz), picked by `OnsetDetector`: an adaptive mean threshold, an absolute floor, a gate on the second-strongest recent onset, and minimum spacing.
+
+  The same class runs in the worklet, the unit tests (`analyzeOffline`) and `npm run analyze`.
+
+- **`synth.ts`** renders drum patterns with exact ground-truth hit times; `scoreOnsets` measures recall, false positives and timing. These back the accuracy tests and the built-in test beat.
+- **Onset times** reach the output main thread with a detection delay. `AudioEngine` converts them to `performance.now()` time (`onOnset(..., atMs)`), ready for the Phase 3 beat clock.
+- **Main** grants `media` permission only to the output window, and only for audio. On Windows it answers `getDisplayMedia` with the primary screen plus `audio: 'loopback'`; the output drops the video track.
+
 ## Messages (`src/shared/protocol.ts`)
 
-| Channel                 | Direction               | Payload                                                                                                                            |
-| ----------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `veejus:to-output`      | control → main → output | `ControlToOutput`: `setBackground`, `ping`, `setDebugOverlay`, `playClip`, `stopClip`, `setLayerSettings`, `requestStatus`         |
-| `veejus:to-control`     | output → main → control | `OutputToControl`: `outputReady`, `pong`, `frameStats`, `backgroundApplied`, `clipState`, `clipStarted`, `clipEnded`, `mediaStats` |
-| `veejus:main-request`   | control → main (invoke) | `MainRequest` → `MainResponse` (displays, fullscreen, library import/remove)                                                       |
-| `veejus:output-state`   | main → control          | `OutputWindowState` (display, fullscreen, visible)                                                                                 |
-| `veejus:output-command` | output → main           | `OutputCommand`: `exitFullscreen`, `toggleFullscreen`                                                                              |
-| `veejus:library`        | main → control, output  | `ClipInfo[]`, the whole library, after every change                                                                                |
-| `veejus:get-library`    | output → main (invoke)  | current `ClipInfo[]`                                                                                                               |
+| Channel                 | Direction               | Payload                                                                                                                                                                                        |
+| ----------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `veejus:to-output`      | control → main → output | `ControlToOutput`: `setBackground`, `ping`, `setDebugOverlay`, `playClip`, `stopClip`, `setLayerSettings`, `requestStatus`                                                                     |
+| `veejus:to-control`     | output → main → control | `OutputToControl`: `outputReady`, `pong`, `frameStats`, `backgroundApplied`, `clipState`, `clipStarted`, `clipEnded`, `mediaStats`, `audioStatus`, `audioDevices`, `audioMeters`, `audioOnset` |
+| `veejus:main-request`   | control → main (invoke) | `MainRequest` → `MainResponse` (displays, fullscreen, library import/remove)                                                                                                                   |
+| `veejus:output-state`   | main → control          | `OutputWindowState` (display, fullscreen, visible)                                                                                                                                             |
+| `veejus:output-command` | output → main           | `OutputCommand`: `exitFullscreen`, `toggleFullscreen`                                                                                                                                          |
+| `veejus:library`        | main → control, output  | `ClipInfo[]`, the whole library, after every change                                                                                                                                            |
+| `veejus:get-library`    | output → main (invoke)  | current `ClipInfo[]`                                                                                                                                                                           |
 
 Main checks the sender of every message and runs the matching `is…` guard before acting on or forwarding it.
 
@@ -65,22 +90,26 @@ Main checks the sender of every message and runs the matching `is…` guard befo
 src/
   main/         Electron main process: windows, IPC, library, media protocol
   preload/      contextBridge APIs, one per window
-  shared/       protocol types + guards, media types, HTTP range parsing, colors
+  shared/       protocol types + guards, audio types + guards, media types, HTTP range, colors
   core/         pure TypeScript engine modules (no DOM/Electron); unit-tested
                 FrameStats, FrameTimeline, LruBudget, fitRect.
-                Later: BeatClock, Scheduler, analysis, ...
+                audio/: RealFft, EnvelopeFollower, OnsetDetector, AudioAnalyzer,
+                        synth (test patterns), wav, evaluate (scoring + offline runs)
+                Later: BeatClock, Scheduler, ...
   renderer/
-    control/    React control UI: LibraryPanel, PlaybackPanel, probe queue, hooks
-    output/     Stage (WebGL2), ClipLayer, media/ (MediaManager, VideoClip, ImageClip)
+    control/    React control UI: LibraryPanel, PlaybackPanel, AudioPanel, probe queue, hooks
+    output/     Stage (WebGL2), ClipLayer, media/ (MediaManager, VideoClip, ImageClip),
+                audio/ (AudioEngine, analysis.worklet)
 tests/
   unit/         Vitest, for core/, shared/ and main/library
   e2e/          Playwright driving the built Electron app (smoke, library, stress)
-scripts/        make-fixtures.mjs (ffmpeg test media)
-fixtures/       media/ (committed), stress/ (generated, gitignored)
+scripts/        make-fixtures.mjs (ffmpeg test media), make-audio-fixtures.ts,
+                analyze-audio.ts (offline analysis harness), ffmpeg.ts
+fixtures/       media/ (committed), stress/ and audio/ (generated, gitignored)
 ```
 
 ## Seams for later phases
 
 - `ClipLayer` becomes one of several layers in a compositor (Phase 5). `Stage.drawTexture` already takes a rect and an opacity.
-- `src/core/` gets the `BeatClock` (Phase 3), the single source of musical time. `ClipLayer.play()` currently starts on the next frame. Phase 4 adds a scheduled start time from the clock.
+- `src/core/` gets the `BeatClock` (Phase 3), the single source of musical time, fed by `AudioEngine`'s kick onsets (already in `performance.now()` time). `ClipLayer.play()` currently starts on the next frame. Phase 4 adds a scheduled start time from the clock.
 - `ImageClip` timing (`FrameTimeline`) is speed-scaled elapsed time. Phase 4 can drive the elapsed time from beats to tempo-sync GIFs.

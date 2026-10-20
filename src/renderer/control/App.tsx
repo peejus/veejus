@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { DisplayInfo, LayerSettings } from '@shared/protocol'
 import { hexToRgb } from '@shared/color'
+import { AudioPanel } from './AudioPanel'
 import { bridge, request } from './bridge'
 import { LibraryPanel } from './LibraryPanel'
 import { PlaybackPanel } from './PlaybackPanel'
+import { useAudio } from './useAudio'
 import { useLibrary } from './useLibrary'
 import { useOutputLink } from './useOutputLink'
 
@@ -21,6 +23,7 @@ const MB = 1024 * 1024
 export function App() {
   const link = useOutputLink()
   const library = useLibrary()
+  const audio = useAudio()
   const { setBackground, send } = link
   const [color, setColor] = useState('#000000')
   const [overlay, setOverlay] = useState(true)
@@ -107,6 +110,8 @@ export function App() {
             library={library}
             onStop={() => send({ type: 'stopClip' })}
           />
+
+          <AudioPanel audio={audio} />
 
           <section className="panel">
             <h2>Background</h2>
