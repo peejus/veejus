@@ -4,7 +4,7 @@ A desktop VJ app for firing short, silly video clips and GIFs in sync with the m
 
 The build follows the phased plan in [VEEJUS_AGENT_PROMPT.md](VEEJUS_AGENT_PROMPT.md). Progress and per-phase test scripts are in [docs/PROGRESS.md](docs/PROGRESS.md); the module map is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-**Current status:** Phase 3 (beat clock: tempo detection, phase tracking, tap tempo).
+**Current status:** Phase 4 (beat-synced pad triggering, drop mode).
 
 ## Requirements
 
@@ -52,7 +52,13 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 
 ## Using it
 
-- **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. Hover a pad for a live preview, click it to play it on the output. The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
+- **Pads:**
+  - **Load:** drag library clips onto the 4×8 pad grid (4 banks), or click **Auto-fill**.
+  - **Fire:** keys `1–8`, `Q–I`, `A–K`, `Z–,` fire pads on the next beat, bar or phrase (global **Quantize**, with a per-pad override).
+  - **Edit:** right-click a pad to set its play mode (one-shot, for N beats, while held, toggle loop, retrigger), fades, tempo sync, or a random clip from a folder.
+  - **Drop:** **Shift+key** arms a pad; the **DROP in N bars** banner counts down to the next phrase.
+  - **Banks and stop:** **F1–F4** switch banks; **Esc** stops everything.
+- **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. Hover a clip for a live preview, click it to play it on the output immediately (unquantized preview). The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
 - **Clip layer:** loop or one-shot, speed (0.25×–4×), and fit (contain, cover, stretch, original size). Changes apply live. **Stop** clears the layer.
 - **Tempo:** the BPM is detected from the audio and the beat lights follow the kicks. **Space** taps tempo, **Enter** marks "now is beat 1", **← / →** nudge the grid 10 ms. You can also type a BPM, use ×2 / ÷2, or lock the tempo. **Clock settings** has phase correction, a latency offset (raise it if the visuals land after the kick you hear), phrase length and tempo range. The output's debug overlay shows a 4-light metronome.
 - **Audio input:** pick your mixer or audio-interface input, **System audio** (whatever this PC is playing), or the silent built-in **Test beat**. Watch the level meter, band bars and spectrum, and the **Kick** and **Snare / hat** lamps. Set **Input gain** so the level sits mostly green without lighting CLIP. **Analysis settings** has sensitivities, envelope times, crossovers and band gains. Veejus never plays audio itself.

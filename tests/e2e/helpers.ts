@@ -26,6 +26,21 @@ export interface OutputTestState {
     latencyMs: number
   }
   beat: import('../../src/shared/beat').BeatState
+  trigger: {
+    state: import('../../src/shared/pads').TriggerState
+    recentActions: {
+      type: 'start' | 'restart' | 'stop'
+      padId: string
+      clipId?: string
+      atMs: number
+      startPos?: number
+      posAtFire: number
+    }[]
+    beatsPerMs: number
+    owner: string | null
+    opacity: number
+    speedOverride: number | null
+  }
   current: {
     id: string
     kind: 'video' | 'image'

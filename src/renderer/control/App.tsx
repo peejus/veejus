@@ -3,6 +3,9 @@ import type { DisplayInfo, LayerSettings } from '@shared/protocol'
 import { hexToRgb } from '@shared/color'
 import { AudioPanel } from './AudioPanel'
 import { BeatPanel } from './BeatPanel'
+import { PadEditor } from './PadEditor'
+import { PadGrid } from './PadGrid'
+import { usePads, usePadShortcuts } from './usePads'
 import { bridge, request } from './bridge'
 import { LibraryPanel } from './LibraryPanel'
 import { PlaybackPanel } from './PlaybackPanel'
@@ -29,6 +32,8 @@ export function App() {
   const audio = useAudio()
   const beat = useBeat()
   useBeatShortcuts(beat.command, NUDGE_MS)
+  const pads = usePads()
+  usePadShortcuts(pads)
   const { setBackground, send } = link
   const [color, setColor] = useState('#000000')
   const [overlay, setOverlay] = useState(true)
@@ -105,11 +110,14 @@ export function App() {
 
       <div className="workspace">
         <main className="main-area">
+          <PadGrid pads={pads} beat={beat} clips={library.clips} probes={library.probes} />
           <LibraryPanel library={library} onPlay={playClip} />
         </main>
 
         <aside className="sidebar">
           <BeatPanel beat={beat} />
+
+          <PadEditor pads={pads} clips={library.clips} />
 
           <PlaybackPanel
             settings={layerSettings}

@@ -171,7 +171,7 @@ test('looping clips keep playing past their length', async () => {
 })
 
 test('stop clears the layer', async () => {
-  await h.control.getByRole('button', { name: 'Stop' }).click()
+  await h.control.getByRole('button', { name: 'Stop', exact: true }).click()
   await expect(h.control.getByTestId('now-playing')).toHaveText('Nothing')
   expect((await readOutput(h.output)).current).toBeNull()
   expect(near(await samplePixel(h.output, 0.5, 0.5), PINK)).toBe(true)

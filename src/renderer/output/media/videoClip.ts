@@ -118,7 +118,9 @@ export class VideoClip {
 
   update(loop: boolean, speed: number): void {
     this.el.loop = loop
-    if (this.el.playbackRate !== speed) this.el.playbackRate = speed
+    // Media elements accept 0.0625-16; tempo sync can ask for more extreme rates.
+    const rate = Math.min(16, Math.max(0.0625, speed))
+    if (Math.abs(this.el.playbackRate - rate) > 1e-3) this.el.playbackRate = rate
   }
 
   /** Pause and rewind so the next start is instant again. */

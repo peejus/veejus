@@ -27,6 +27,15 @@ import {
   type BeatEvent,
   type BeatState,
 } from './beat'
+import {
+  isPadId,
+  isPadSpec,
+  isTriggerSettings,
+  isTriggerState,
+  type PadSpec,
+  type TriggerSettings,
+  type TriggerState,
+} from './pads'
 
 /** IPC channel names. */
 export const Channel = {
@@ -90,6 +99,15 @@ export type ControlToOutput =
   | { type: 'setAnalysisSettings'; settings: AnalysisSettings }
   | { type: 'requestAudioDevices' }
   | { type: 'beatCommand'; command: BeatCommand }
+  /** A pad was pressed (key down / click). Fires per its quantize and mode. */
+  | { type: 'padPress'; padId: string; spec: PadSpec }
+  /** A pad was released (matters for 'hold' mode). */
+  | { type: 'padRelease'; padId: string }
+  /** Arm a pad for the drop, or disarm it if already armed. */
+  | { type: 'padArm'; padId: string; spec: PadSpec }
+  /** Stop every pad and cancel the drop. */
+  | { type: 'stopAll' }
+  | { type: 'setTriggerSettings'; settings: TriggerSettings }
 
 export interface FrameStatsSnapshot {
   fps: number
@@ -137,6 +155,8 @@ export type OutputToControl =
   | { type: 'beatState'; state: BeatState }
   /** Sent on every beat of the visual timeline. */
   | { type: 'beat'; event: BeatEvent }
+  /** Pad states and drop countdown: on every change and ~10 per second while armed. */
+  | { type: 'triggerState'; state: TriggerState }
 
 /** Window commands the output page can ask main for (e.g. from its own key handling). */
 export type OutputCommand = { type: 'exitFullscreen' } | { type: 'toggleFullscreen' }
@@ -243,6 +263,15 @@ export function isControlToOutput(v: unknown): v is ControlToOutput {
       return isAnalysisSettings(v.settings)
     case 'beatCommand':
       return isBeatCommand(v.command)
+    case 'padPress':
+    case 'padArm':
+      return isPadId(v.padId) && isPadSpec(v.spec)
+    case 'padRelease':
+      return isPadId(v.padId)
+    case 'stopAll':
+      return true
+    case 'setTriggerSettings':
+      return isTriggerSettings(v.settings)
     case 'setLayerSettings':
       return isLayerSettings(v.settings)
     default:
@@ -293,6 +322,8 @@ export function isOutputToControl(v: unknown): v is OutputToControl {
       return isBeatState(v.state)
     case 'beat':
       return isBeatEvent(v.event)
+    case 'triggerState':
+      return isTriggerState(v.state)
     default:
       return false
   }

@@ -382,7 +382,7 @@ In **Audio input**, pick **Test beat**, your mixer input, or **System audio**.
 
 ---
 
-## Phase 3: Beat clock (completed 2026-10-19, awaiting approval)
+## Phase 3: Beat clock (completed and approved 2026-10-19)
 
 ### What was built
 
@@ -528,3 +528,121 @@ In **Audio input**, pick **Test beat**, your mixer input or **System audio**. Th
 1. Run the real-music test (step 3). Does it stay locked for 2+ minutes on your tracks, and what latency offset looks right on your setup?
 2. Should Phase 4's quantized triggers use the latency-shifted visual timeline (recommended: clips land on the beat you hear), or the raw audio grid?
 3. Any preference for default tap/resync keys before Phase 4 assigns the pad keys?
+
+**Approval notes (2026-10-19):**
+
+- Quantized triggers use the latency-shifted visual timeline.
+- Space, Enter and ←/→ stay reserved for tempo.
+
+---
+
+## Phase 4: Beat-synced triggering (completed 2026-10-20, awaiting approval)
+
+### What was built
+
+**Pad grid** (top of the main area)
+
+- 4 banks (A–D) of 4×8 pads, each showing its key, clip thumbnail, name and mode.
+- **Assigning clips:** drag clips from the library onto pads, or use **Auto-fill**, which puts the library's readable clips on the bank in order.
+- **States:**
+  - queued: blinking amber
+  - armed for the drop: blinking pink
+  - playing: green, pulsing on every beat (pink on the downbeat)
+  - stopping
+- **Global quantize** (off, ¼ beat, beat, bar, phrase; default beat) and **drop timing** (next phrase, or in 1/2/4/8/16 bars).
+- **Stop all**, and **Edit pads** mode (clicks select instead of fire).
+
+**Keys**
+
+- **Fire pads:** rows `1–8`, `Q–I`, `A–K`, `Z X C V B N M ,`. Key-up releases a _While held_ pad.
+- **Shift+key** or Shift+click arms or disarms a pad for the drop.
+- **F1–F4** switch banks; **Esc** stops everything.
+- Space, Enter and arrows stay tempo controls. Keys are ignored while typing in a field.
+
+**Pad editor** (sidebar, right-click a pad)
+
+- **Plays:** a clip, a random clip from any library folder, or a random clip from all clips.
+- **Mode:**
+  - **One-shot:** plays once; pressing again restarts on the next boundary.
+  - **For N beats:** ½ beat to 8 bars, then gone.
+  - **While held.**
+  - **Toggle loop:** the off press is quantized too.
+  - **Retrigger:** restarts every beat or bar until toggled off.
+- **Quantize override**, **fade in / out** in beats, and **tempo sync** (stretch one pass to ½ beat – 8 bars; works for video and GIF/WebP).
+- **Fire**, **Arm for drop** and **Clear** buttons.
+
+**Drop**
+
+- Armed pads fire together on the next phrase, or after N bars from the next bar line.
+- A big pulsing **"DROP in 3 bars"** banner switches to beats in the last bar, lists the armed pads, and has **Cancel**.
+- Arming an armed pad disarms it.
+
+**Random pads**
+
+- Pick from the folder or library, skipping unreadable clips, and never play the same clip twice in a row.
+- The clip is chosen and preloaded when you press, so it's ready on the beat.
+
+**Scheduler (`src/core/trigger/`):** pure TypeScript, driven by the beat clock in beat positions on the latency-shifted visual timeline.
+
+- **Timing:** each action fires on the frame nearest its boundary, at most half a frame early. The output advances the clock and applies triggers _before_ drawing, so a clip due on a frame is drawn on that frame.
+- **Grace:** a press up to 80 ms after a boundary fires immediately rather than waiting a whole bar.
+- **Downbeat:** bars and phrases follow the resynced downbeat.
+- **One clip layer:** a new pad replaces the showing one, and a library click is still an instant, unquantized preview that takes over the layer.
+
+### Test results
+
+- `npm run typecheck` and `npm run lint`: clean.
+- `npm run test:unit`: **151 passing**. The 27 new scheduler tests, run in simulated time against a real `BeatClock` at 60 fps:
+  - **Starts:** every quantize unit fires within ±½ frame of its boundary; also grace, downbeat resync, and the latency offset (a 40 ms offset fires 40 ms earlier).
+  - **For N beats:** 2 and 4 beats at 120 and 174 BPM last exactly N beats ±1 frame.
+  - **Modes:** fades; hold, including release-before-start; toggle, including double-press cancel; retrigger on every beat; one-shot restart; replacement.
+  - **Drop:** fires exactly on the phrase with the countdown at 7 → 1 bars; N-bar drops with all pads together; disarm; stop all.
+  - **Random:** 2,000 picks with no repeat; random pads on a folder; empty sources.
+- `npm run test:e2e`: **61 passing**. The 15 new pad tests, in the real app at a locked 120 BPM:
+  - **Setup:** drag-to-pad and Auto-fill (broken files skipped).
+  - **Timing:** a bar-quantized key press fires within one frame of a bar; beat quantize lands on beats and off is immediate; _For 2 beats_ lasts 2 beats ±1 frame.
+  - **Modes:** hold on key down/up; toggle stops on a beat; retrigger every 500 ±25 ms.
+  - **Drop:** Shift+key arm shows the countdown and fires on a bar; arming again cancels.
+  - **Random:** a random pad plays 6 presses with no consecutive repeats and no broken clips.
+  - **Other:** F1/F2 banks; tempo sync gives 0.5× for 2 s stretched to 8 beats; Esc stops all; 60 fps while firing.
+  - The Phase 0–3 suites still pass. One old test needed `exact: true` because of the new **Stop all** button.
+- **Live with the audio-tracked test beat:** bar-quantized presses landed −4.8, −0.1 and 0.0 ms from the bar. The 0.0 ms press came 47 ms late and fired immediately through the grace window.
+
+### Manual test script
+
+1. Run `npm run dev`, drag `fixtures/media` (or your own clips) into the library, and click **Auto-fill**. In **Audio input**, choose **Test beat** (or your mixer) and wait for **in phase**.
+2. Set **Quantize** to **Bar**. Press `1`, `2`, `3` at random moments. **Expected:**
+   - The pad blinks amber.
+   - The clip appears exactly on the next "1" (watch the pink beat light).
+   - A press just after the "1" fires immediately instead of waiting a bar.
+3. Right-click pad **3**, set **Mode: For N beats**, **Length: 2 beats**, **Quantize: Beat**. Press `3`. **Expected:** the clip flashes up on a beat for exactly two beats.
+4. Set a pad to **While held**: it shows only while you hold the key. **Toggle loop**: on with one press, off with the next, both on the beat. **Retrigger (every beat)**: the clip restarts on each beat (stutter).
+5. Hold **Shift** and press `1`. **Expected:** the pink **DROP in N bars** banner counts down, and pad 1 fires on the phrase's first beat. Shift+`1` again before then cancels. Try **Drop: In 2 bars**.
+6. Right-click an empty pad. **Plays: Random from all clips**, **Quantize: Off**. Press it repeatedly. **Expected:** a different clip each time, never the same twice in a row.
+7. Give a looping pad **Tempo sync: Stretch to 1 bar**. **Expected:** one pass of the clip lasts exactly a bar, and it follows tempo changes.
+8. **F2** switches to bank B; **F1** back. **Esc** stops everything.
+9. **With real music:** play a track, fire pads on the drop, and judge whether it _feels on the beat_. If clips land late, raise **Latency offset** in Clock settings.
+
+### Decisions and defaults (flag any you want changed)
+
+- **One clip layer for now.** A new pad replaces the showing pad, and several armed pads fire together but only the last shows. Phase 5's layers make multi-clip drops and overlays meaningful; pads will target layers then.
+- **Clicks fire; right-click edits.** Mouse down/up on a pad acts like key down/up. Right-click, or **Edit pads** mode, selects a pad for editing, so a performance click never opens the editor by accident.
+- **One-shot** ends at the clip's natural end. Pressing again restarts on the next boundary. A **For N beats** clip loops if shorter than N beats.
+- **Grace window:** 80 ms. **Default global quantize:** Beat.
+- **Drop "In N bars":** counted from the next bar line, so arming mid-bar gives N−1 full bars plus the rest of the current bar.
+- **Fades** are measured in beats and apply at the start and end only. A retrigger doesn't re-fade.
+- **Pad layouts are not saved yet** (Phase 8, with the library).
+- **Library clicks stay instant previews** (unquantized). Pads are the performance path.
+
+### Known issues / limitations
+
+- **Single layer:** "drop macros" with several simultaneous clips need Phase 5.
+- **Retriggered videos seek to 0 on every beat.** Short local clips handle this fine; long or heavily compressed videos may show the previous frame for one frame after each restart. GIF/WebP retriggers are exact.
+- **Tempo sync relies on the clip's reported duration.** Videos with odd timestamps may stretch slightly wrong.
+- **Hold-mode release isn't quantized** (by design: it lets go when you do).
+
+### Open questions for you
+
+1. Run the real-music check (step 9). Do quantized pads feel on the beat on your setup, and with what latency offset?
+2. For Phase 5 layers: should each pad pick its layer, with defaults by mode (loops to the background, one-shots and N-beat pads to overlays, armed drops to the takeover layer)?
+3. Is right-click to edit and Shift to arm comfortable, or would you prefer different gestures for your controller workflow?

@@ -3,6 +3,7 @@ import type { ClipInfo, ClipLoadState } from '@shared/protocol'
 import type { ProbeResult } from './probe'
 import { bridge, request } from './bridge'
 import type { LibraryState } from './useLibrary'
+import { CLIP_DRAG_TYPE } from './PadGrid'
 
 function formatDuration(ms: number): string {
   const s = ms / 1000
@@ -56,6 +57,11 @@ const Pad = memo(function Pad({ clip, probe, outputState, playing, onPlay, onRem
       role="button"
       aria-label={clip.name}
       tabIndex={0}
+      draggable={!error}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(CLIP_DRAG_TYPE, clip.id)
+        e.dataTransfer.effectAllowed = 'copy'
+      }}
       title={`${clip.name}\n${error ?? STATE_LABEL[state]}`}
       onClick={() => !error && onPlay(clip.id)}
       onKeyDown={(e) => {

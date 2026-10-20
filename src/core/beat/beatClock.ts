@@ -15,6 +15,9 @@ export interface ClockTarget {
   beatAtMs: number
 }
 
+/** Grid units for quantizing, in beats (bar and phrase also follow the downbeat). */
+export type GridUnit = 'quarter' | 'beat' | 'bar' | 'phrase'
+
 /** Phase errors converge with roughly this time constant, in beats. */
 const CONVERGE_BEATS = 1
 /** The running rate never strays further than this from the target rate. */
@@ -128,6 +131,37 @@ export class BeatClock {
     this.anchorV = v
     this.anchorPos = pos
     return events
+  }
+
+  /** Current speed of the visual timeline, beats per ms. */
+  get beatsPerMs(): number {
+    return this.rate
+  }
+
+  /** Size of a grid unit in beats, and the offset its boundaries are aligned to. */
+  private grid(unit: GridUnit): { size: number; offset: number } {
+    switch (unit) {
+      case 'quarter':
+        return { size: 0.25, offset: 0 }
+      case 'beat':
+        return { size: 1, offset: 0 }
+      case 'bar':
+        return { size: BEATS_PER_BAR, offset: this.barOffset }
+      case 'phrase':
+        return { size: BEATS_PER_BAR * this.phraseBars, offset: this.barOffset }
+    }
+  }
+
+  /** The first `unit` boundary at or after beat position `pos`. */
+  boundaryAfter(pos: number, unit: GridUnit): number {
+    const { size, offset } = this.grid(unit)
+    return Math.ceil((pos + offset - 1e-9) / size) * size - offset
+  }
+
+  /** The last `unit` boundary at or before beat position `pos`. */
+  boundaryAtOrBefore(pos: number, unit: GridUnit): number {
+    const { size, offset } = this.grid(unit)
+    return Math.floor((pos + offset + 1e-9) / size) * size - offset
   }
 
   private eventFor(beatIndex: number, atMs: number): BeatEvent {

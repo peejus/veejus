@@ -4,6 +4,9 @@ import { rgbToHex } from '@shared/color'
 import { BAND_NAMES } from '@shared/audio'
 import { HOP_SIZE } from '@core/audio/analyzer'
 import { BeatEngine } from '@core/beat/beatEngine'
+import { TriggerScheduler, type TriggerAction } from '@core/trigger/scheduler'
+import type { ClipInfo } from '@shared/protocol'
+import type { PadSource } from '@shared/pads'
 import { AudioEngine } from './audio/audioEngine'
 import { Metronome } from './metronome'
 import { ClipLayer } from './clipLayer'
@@ -29,7 +32,10 @@ const layer = new ClipLayer(
   media,
   {
     onStarted: (id, waitFrames) => bridge.sendToControl({ type: 'clipStarted', id, waitFrames }),
-    onEnded: (id) => bridge.sendToControl({ type: 'clipEnded', id }),
+    onEnded: (id, owner, reason) => {
+      if (owner && reason === 'finished') scheduler.onClipEnded(owner)
+      bridge.sendToControl({ type: 'clipEnded', id })
+    },
     onError: (id, error) => bridge.sendToControl({ type: 'clipState', id, state: 'error', error }),
   },
   { loop: true, speed: 1, fit: 'contain' },
@@ -62,6 +68,85 @@ function sendBeatState(now = performance.now()): void {
   bridge.sendToControl({ type: 'beatState', state: beat.state(now) })
 }
 
+// ---- pads ------------------------------------------------------------------
+
+let libraryClips: ClipInfo[] = []
+
+/** Parent folder of a clip path, with forward slashes. */
+const slashes = (path: string) => path.replaceAll('\\', '/')
+const folderOf = (path: string) => slashes(path).replace(/\/[^/]*$/, '')
+
+const scheduler = new TriggerScheduler({
+  candidates: (source: PadSource) => {
+    const playable = (c: ClipInfo) => media.state(c.id) !== 'error'
+    if (source.kind === 'clip') {
+      const clip = libraryClips.find((c) => c.id === source.clipId)
+      return clip && playable(clip) ? [clip.id] : []
+    }
+    const folder = source.folder !== null ? slashes(source.folder) : null
+    return libraryClips
+      .filter((c) => playable(c) && (folder === null || folderOf(c.path) === folder))
+      .map((c) => c.id)
+  },
+  prepare: (clipId) => {
+    if (media.state(clipId) !== 'ready') media.load(clipId).catch(() => {})
+  },
+})
+
+/** Pad actions as they fired, newest last, for tests and diagnostics. */
+const recentActions: {
+  type: TriggerAction['type']
+  padId: string
+  clipId?: string
+  atMs: number
+  /** Scheduled beat position (starts), and the clock position on the frame it fired. */
+  startPos?: number
+  posAtFire: number
+}[] = []
+let triggerVersionSent = -1
+let lastTriggerStateAt = 0
+
+function sendTriggerState(now = performance.now()): void {
+  triggerVersionSent = scheduler.version
+  bridge.sendToControl({ type: 'triggerState', state: scheduler.state(now, beat.clock) })
+}
+
+function applyTriggerActions(actions: TriggerAction[], now: number): void {
+  for (const a of actions) {
+    recentActions.push({
+      type: a.type,
+      padId: a.padId,
+      atMs: now,
+      posAtFire: beat.clock.position(now),
+      ...(a.type === 'start' ? { clipId: a.clipId, startPos: a.startPos } : {}),
+    })
+    if (recentActions.length > 64) recentActions.shift()
+    switch (a.type) {
+      case 'start':
+        layer.play(a.clipId, layer.settings, frameCount, a.padId, a.spec.mode !== 'oneShot')
+        break
+      case 'restart':
+        if (layer.current?.owner === a.padId) layer.restart()
+        break
+      case 'stop':
+        if (layer.current?.owner === a.padId) layer.stop()
+        break
+    }
+  }
+}
+
+/** Per-frame pad effects: tempo-synced speed and fades for the pad that owns the layer. */
+function padFrameEffects(now: number): number {
+  const spec = scheduler.currentSpec
+  const owned = !!spec && layer.current?.owner === scheduler.currentPadId
+  if (owned && spec.syncBeats !== null && layer.durationMs > 0) {
+    layer.speedOverride = layer.durationMs / (spec.syncBeats * (60000 / beat.bpm))
+  } else if (layer.speedOverride !== null) {
+    layer.speedOverride = null
+  }
+  return owned ? scheduler.opacity(now, beat.clock) : 1
+}
+
 let background: Rgb = [0, 0, 0]
 let pendingBackgroundAck = false
 let frameCount = 0
@@ -88,10 +173,34 @@ bridge.onControlMessage((msg) => {
       metronome.setVisible(msg.visible)
       break
     case 'playClip':
+      // A library preview takes the layer over from any pad.
+      scheduler.onLayerTakenOver()
       layer.play(msg.id, msg.settings, frameCount)
       break
     case 'stopClip':
+      applyTriggerActions(scheduler.stopAll(), performance.now())
       layer.stop()
+      sendTriggerState()
+      break
+    case 'padPress':
+      scheduler.press(msg.padId, msg.spec, performance.now(), beat.clock)
+      sendTriggerState()
+      break
+    case 'padRelease':
+      scheduler.release(msg.padId, performance.now(), beat.clock)
+      sendTriggerState()
+      break
+    case 'padArm':
+      scheduler.arm(msg.padId, msg.spec, performance.now(), beat.clock)
+      sendTriggerState()
+      break
+    case 'stopAll':
+      applyTriggerActions(scheduler.stopAll(), performance.now())
+      sendTriggerState()
+      break
+    case 'setTriggerSettings':
+      scheduler.settings = { ...msg.settings }
+      sendTriggerState()
       break
     case 'setLayerSettings':
       layer.setSettings(msg.settings)
@@ -104,6 +213,7 @@ bridge.onControlMessage((msg) => {
       if (cur?.started) bridge.sendToControl({ type: 'clipStarted', id: cur.id, waitFrames: 0 })
       bridge.sendToControl({ type: 'audioStatus', status: audio.currentStatus })
       sendBeatState()
+      sendTriggerState()
       break
     }
     case 'beatCommand':
@@ -122,11 +232,12 @@ bridge.onControlMessage((msg) => {
   }
 })
 
-bridge.onLibrary((clips) => media.sync(clips))
-bridge
-  .getLibrary()
-  .then((clips) => media.sync(clips))
-  .catch(console.error)
+function onLibrary(clips: ClipInfo[]): void {
+  libraryClips = clips
+  media.sync(clips)
+}
+bridge.onLibrary(onLibrary)
+bridge.getLibrary().then(onLibrary).catch(console.error)
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') bridge.command({ type: 'exitFullscreen' })
@@ -187,16 +298,28 @@ function frame(now: number): void {
   const dt = lastFrameAt === null ? 0 : now - lastFrameAt
   lastFrameAt = now
 
-  stage.beginFrame(background)
-  layer.render(dt, frameCount)
-
+  // Advance musical time first, so anything due on this frame is drawn on this frame.
   for (const event of beat.update(now)) {
     metronome.beat(event.beatInBar)
     bridge.sendToControl({ type: 'beat', event })
   }
+  applyTriggerActions(scheduler.update(now, dt > 0 ? dt : 1000 / 60, beat.clock), now)
+  const opacity = padFrameEffects(now)
+
+  stage.beginFrame(background)
+  layer.render(dt, frameCount, opacity)
+
   if (now - lastBeatStateAt >= BEAT_STATE_INTERVAL_MS) {
     lastBeatStateAt = now
     sendBeatState(now)
+  }
+  const dropActive = scheduler.state(now, beat.clock).drop !== null
+  if (
+    scheduler.version !== triggerVersionSent ||
+    (dropActive && now - lastTriggerStateAt >= BEAT_STATE_INTERVAL_MS)
+  ) {
+    lastTriggerStateAt = now
+    sendTriggerState(now)
   }
 
   while (pixelRequests.length > 0) {
@@ -241,6 +364,14 @@ function frame(now: number): void {
         latencyMs: audio.latencyMs,
       },
       beat: beat.state(performance.now()),
+      trigger: {
+        state: scheduler.state(performance.now(), beat.clock),
+        recentActions: [...recentActions],
+        beatsPerMs: beat.clock.beatsPerMs,
+        owner: cur?.owner ?? null,
+        opacity: padFrameEffects(performance.now()),
+        speedOverride: layer.speedOverride,
+      },
       current: cur
         ? {
             id: cur.id,
