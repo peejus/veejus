@@ -20,6 +20,16 @@ npm install
 
 If Electron's binary did not download during install, run `node node_modules/electron/install.js`.
 
+## Starting the app
+
+Double-click **`Start-Veejus.bat`** in the project folder:
+
+- It installs dependencies on first run.
+- It builds the latest code (a few seconds), then opens Veejus without leaving a console window open.
+- `Start-Veejus.bat dev` starts development mode with hot reload instead.
+
+To start it from the desktop or taskbar, right-click `Start-Veejus.bat` → **Show more options** → **Create shortcut**, then move the shortcut there.
+
 ## Commands
 
 | Command                   | What it does                                                    |
