@@ -103,7 +103,10 @@ test('beat and off quantize', async () => {
   await h.output.waitForTimeout(250)
   await h.control.keyboard.press('Digit1')
   let start = await nextAction(before, (a) => a.type === 'start' && a.padId === 'A1')
-  expect(Number.isInteger(start.startPos)).toBe(true)
+  // On the next beat, or immediately if pressed within the grace window just after one.
+  const pastBeat = start.startPos! % 1
+  const { beatsPerMs } = (await readOutput(h.output)).trigger
+  expect(pastBeat === 0 || pastBeat / beatsPerMs <= 80 + FRAME).toBe(true)
 
   await setQuantize('off')
   await focusBody(h.control)

@@ -40,6 +40,28 @@ describe('placeClip', () => {
     expect(bl.cy).toBeCloseTo(br.cy)
   })
 
+  it('lower third sits bottom center; halves fit their half of the screen', () => {
+    const m = EDGE_MARGIN * OUT_H
+    expect(place({ anchor: 'lowerThird', size: 0.25 })).toMatchObject({
+      cx: 960,
+      cy: OUT_H - m - 135,
+      h: 270,
+    })
+    expect(place({ anchor: 'leftHalf', fit: 'contain' })).toMatchObject({
+      cx: 480,
+      cy: 540,
+      w: 960,
+      h: 540,
+    })
+    expect(place({ anchor: 'rightHalf', fit: 'cover' })).toMatchObject({
+      cx: 1440,
+      cy: 540,
+      w: 1920,
+      h: 1080,
+    })
+    expect(isPlacement({ ...DEFAULT_PLACEMENT, anchor: 'rightHalf' })).toBe(true)
+  })
+
   it('random spots stay fully on screen', () => {
     for (const r of [
       [0, 0],

@@ -60,6 +60,9 @@ export const ANCHORS = [
   'topRight',
   'bottomLeft',
   'bottomRight',
+  'lowerThird',
+  'leftHalf',
+  'rightHalf',
   'random',
 ] as const
 export type Anchor = (typeof ANCHORS)[number]
@@ -70,6 +73,9 @@ export const ANCHOR_LABELS: Record<Anchor, string> = {
   topRight: 'Top right',
   bottomLeft: 'Bottom left',
   bottomRight: 'Bottom right',
+  lowerThird: 'Lower third (bottom center)',
+  leftHalf: 'Left half',
+  rightHalf: 'Right half',
   random: 'Random spot',
 }
 

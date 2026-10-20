@@ -89,7 +89,7 @@ function PlacementEditor({ p, set }: { p: Placement; set: (patch: Partial<Placem
           ))}
         </select>
       </label>
-      {p.anchor === 'full' ? (
+      {p.anchor === 'full' || p.anchor === 'leftHalf' || p.anchor === 'rightHalf' ? (
         <label className="field">
           <span className="label">Fit</span>
           <select

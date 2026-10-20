@@ -62,9 +62,13 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 - **Layers:**
   - **The four layers:** Background, Overlay A, Overlay B and Takeover. Each has opacity, a blend mode (normal, add, screen, multiply, difference), mute (M), solo (S) and stop (■).
   - **Where pads play:** a pad picks its layer itself (**Auto**: loops to Background, quick hits to the overlays, drops to Takeover), or you can choose one in the pad editor.
-  - **Placement and keying:** the pad editor also sets placement (full screen, center, corners, random spot; size, offset, rotation; pop or slide entrances in beats) and keying (green screen, blue screen, custom color, or luma).
+  - **Placement and keying:** the pad editor also sets placement (full screen, center, corners, lower third, left or right half, random spot; size, offset, rotation; pop or slide entrances in beats) and keying (green screen, blue screen, custom color, or luma).
   - **Under a takeover:** the lower layers keep playing, dim, pause or hide.
   - **Master:** brightness and **Blackout** (`` ` `` key). The **Output preview** at the top of the sidebar mirrors what the audience sees.
+- **Effects & modulation:** pick a layer (or Master) in the **Effects & modulation** panel.
+  - **Presets:** one click turns on **Kick Bump**, **Snare Strobe**, **Bar Shake** or **Drop Flash**.
+  - **Effects:** strobe/flash, RGB split, kaleidoscope, mirror, pixelate, zoom bump, shake, invert, hue rotate and feedback trails, applied in order (↑/↓ to reorder).
+  - **Modulators:** drive any number (opacity, scale, rotation, position, or any effect parameter) from a beat-synced **LFO** (sine, triangle, saw, square, random step; 1/16 note to 8 bars), a **beat envelope** (every beat, beats 2 & 4, bar, phrase, detected kick or snare/hat), or an **audio band** level. Each has an amount, a min..max range and invert.
 - **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. Hover a clip for a live preview, click it to play it on the output immediately (unquantized preview). The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
 - **Clip layer:** loop or one-shot, speed (0.25×–4×), and fit (contain, cover, stretch, original size). Changes apply live. **Stop** clears the layer.
 - **Tempo:** the BPM is detected from the audio and the beat lights follow the kicks. **Space** taps tempo, **Enter** marks "now is beat 1", **← / →** nudge the grid 10 ms. You can also type a BPM, use ×2 / ÷2, or lock the tempo. **Clock settings** has phase correction, a latency offset (raise it if the visuals land after the kick you hear), phrase length and tempo range. The output's debug overlay shows a 4-light metronome.

@@ -654,7 +654,7 @@ In **Audio input**, pick **Test beat**, your mixer input or **System audio**. Th
 
 ---
 
-## Phase 5: Layers, compositing and placement (completed 2026-10-20, awaiting approval)
+## Phase 5: Layers, compositing and placement (completed and approved 2026-10-20)
 
 ### What was built
 
@@ -779,3 +779,164 @@ The first version read the preview back synchronously. That made the CPU wait fo
 1. Are the four fixed layers and their auto-routing right for how you'd perform, or do you want more overlay layers or a different order?
 2. Should the Takeover layer's default be **Dim**, **Pause** or **Hide**?
 3. Placement presets: are there other positions you'd use often (lower third, left/right half, ticker strip)?
+
+**Approval notes (2026-10-20):** Phase 5 was approved without answers to the open questions, so the recommended defaults stand:
+
+- The four fixed layers and the automatic routing stay.
+- **Dim** stays the takeover default.
+- The **lower third**, **left half** and **right half** positions were added during Phase 6.
+
+---
+
+## Phase 6: Audio-reactive modulation and effects (completed 2026-10-20, awaiting approval)
+
+### What was built
+
+**Effects & modulation panel** (sidebar, under Layers), with one chain per layer plus one for the **Master**. The scope tabs are BG / A / B / TO / Master and show how many items each has.
+
+**Effects**
+
+- Ten effects, each with live sliders:
+
+  | Effect                | Parameters                                                                               |
+  | --------------------- | ---------------------------------------------------------------------------------------- |
+  | **Strobe / flash**    | amount, flashes per beat (0 = a steady flash for envelopes), on-fraction, to white/black |
+  | **RGB split**         | offset, angle                                                                            |
+  | **Kaleidoscope**      | mix, segments, rotation                                                                  |
+  | **Mirror**            | mix, left→right / top→bottom / both                                                      |
+  | **Pixelate**          | block size                                                                               |
+  | **Zoom bump**         | zoom                                                                                     |
+  | **Shake**             | distance, jumps per beat                                                                 |
+  | **Invert**            | mix                                                                                      |
+  | **Hue rotate**        | degrees                                                                                  |
+  | **Feedback / trails** | trail length, tunnel zoom                                                                |
+
+- Effects can be enabled, disabled, reordered (↑/↓) and removed.
+- **On a layer**, effects apply to that layer's clip only, and transparency is kept: a kaleidoscoped meme stays cut out over the background.
+- **On the master**, they apply to the whole picture.
+
+**Modulators** drive any number from a source:
+
+- **Targets:** layer opacity, scale, rotation, X/Y move, or any effect parameter. On the master, opacity is brightness, and scale/rotation/move transform the whole frame.
+- **Sources:**
+  - **Beat-synced LFO:** sine, triangle, saw, square or random step. The period runs from **1/16 note to 8 bars**, with a phase offset. LFOs are aligned to the bar grid, so a 1-bar LFO restarts on every downbeat.
+  - **Beat envelope:** attack and decay in beats, retriggered **every beat**, on **beats 2 & 4**, **every bar**, **every phrase**, on each **detected kick**, or on each detected **snare/hat**.
+  - **Audio band:** bass, low-mid, mid or high level, with gain.
+- **Controls:** each modulator has an **amount**, a **min..max range** (what it adds to the parameter) and **invert**. Several modulators on one target add up. Results are clamped to the parameter's range.
+- When you choose a new target, the range resets to one that suits it. For example, opacity gets −1..0, which pulses a full-opacity layer down to nothing.
+
+**Presets** (one-click toggles per layer or master; click again to remove):
+
+- **Kick Bump:** scale +10% on every detected kick, settling over half a beat.
+- **Snare Strobe:** an 80% white flash on beats 2 and 4, a quarter-beat decay.
+- **Bar Shake:** a shake on each bar that settles over two beats.
+- **Drop Flash:** a full white flash plus a 25% zoom on every phrase start.
+
+**New placement positions** (pad editor): **lower third** (bottom center), and **left half** / **right half** (fit into that half).
+
+**How it works** (details in `docs/ARCHITECTURE.md`)
+
+- **Modulation** is pure TypeScript (`src/core/modulation`), evaluated once per frame for all five chains.
+- **Musical time** comes from the beat clock's **position in beats**, never from wall time. The position is continuous and only moves forward, so LFOs can't jump when the tempo changes: they just run faster or slower along the same waveform.
+- **Effects** are one shader with a type switch, run as full-screen passes in premultiplied color.
+- **Idle effects cost nothing:** an effect at zero strength is skipped, and a layer without active effects uses the Phase 5 direct path. A Snare Strobe between flashes costs no GPU work.
+- **Feedback** blends the current frame over its decayed past ("lighten"). A small bias stops 8-bit rounding from leaving a permanent ghost.
+
+### Performance (acceptance)
+
+Measured by `tests/e2e/perf.spec.ts` at **1920×1080** with live preview. The four 1080p layers are the same as Phase 5's.
+
+**Effects in the test:** 11 full-screen passes every frame.
+
+| Chain      | Effects                     | Modulators                    |
+| ---------- | --------------------------- | ----------------------------- |
+| Background | kaleidoscope, hue rotate    | LFO on the kaleidoscope angle |
+| Overlay A  | RGB split, feedback trails  | Kick Bump, LFO rotation       |
+| Overlay B  | pixelate, quad mirror       | LFO on block size             |
+| Takeover   | shake, 50% invert           | —                             |
+| Master     | zoom bump, strobe, feedback | LFO on zoom                   |
+
+| Result                | Without effects | With effects |
+| --------------------- | --------------- | ------------ |
+| Average fps           | 59.9            | **60.0**     |
+| Minimum 1 s sample    | 59.9            | **59.9**     |
+| Dropped-frame samples | 0               | **0**        |
+| Longest frame         | 16.9 ms         | 16.8 ms      |
+| Frame JS time         | 5.05 ms avg     | 5.02 ms avg  |
+
+Modulation adds no measurable JavaScript time, and the effect passes fit in the GPU's frame budget on this machine.
+
+### Test results
+
+- `npm run typecheck`, `npm run lint` and Prettier: clean.
+- `npm run test:unit`: **181 passing** (20 new):
+  - **LFO waveforms:** the expected shapes, staying in 0..1, and exactly one cycle per period for every musical period from 1/16 to 8 bars. Also bar-grid alignment, the phase offset, and the random step holding one value per period.
+  - **Phase continuity across tempo changes (acceptance):** a 1/16-note sine sampled every frame while the clock jumps 120 → 174 → 90 → 128 BPM. The position never goes backwards, and no frame-to-frame change exceeds what the waveform's slope allows, so there are no jumps.
+  - **A 1-bar sine at 90, 128 and 174 BPM:** sampled every 1 ms from one downbeat to the next, it starts at 0, peaks exactly once and ends at 0.
+  - **Envelopes:**
+    - The attack/decay shape.
+    - Beat, backbeat, bar (including a moved downbeat) and phrase triggers.
+    - Kick envelopes: silent until the first kick, then decaying from it.
+  - **Modulators:**
+    - Range mapping, amount and invert.
+    - Audio bands with gain and clamping.
+    - Summing on one target.
+    - Clamping effect parameters to their ranges.
+    - Disabled items and missing targets are ignored.
+  - **Presets:**
+    - Kick Bump is +10% on a kick and back to 0 after half a beat.
+    - Snare Strobe fires only on beats 2 and 4.
+    - Drop Flash flashes and zooms on the phrase start.
+    - Every preset passes validation.
+  - **Guards:** every effect with its defaults passes; out-of-range values and bad ids are rejected.
+  - **Placement:** lower third and left/right half.
+- `npm run test:e2e`: **77 passing** (6 new):
+  - **Effects on the picture**, checked pixel by pixel:
+    - A layer flash whitens only that layer.
+    - Master mirror copies the red square to the right.
+    - Master invert turns red cyan.
+    - Disabled and zero-strength effects cost **0 passes**.
+  - **Feedback trails** stay visible after the layer stops, then fade **completely to 0**.
+  - **A 1-bar sine on opacity, live at 120 BPM:** over 2+ bars, every sample matches the bar-aligned sine within 0.01. There is one peak per bar; the lows land on beat 1 and the highs on beats 2–3.
+  - **Kick Bump turned on from the panel**, with the built-in test beat:
+    - The clip peaks at +10% (never more) and returns to 1.00.
+    - The bumps match the detected kicks one-for-one (±1).
+    - Toggling the preset off removes it.
+  - **The panel adds an effect, retargets a modulator onto it, disables the effect and removes it.** Removing it also removes its modulator.
+  - The **1080p effects performance test** (above).
+- **Test fix:** a Phase 4 test ("beat and off quantize") failed twice in full-suite runs. A key press landing within 80 ms after a beat fires immediately, by design (the grace window). The test now accepts that, like the bar-quantize test already did.
+
+### Manual test script
+
+1. Run `npm run dev`. Load clips and fire a toggle loop (Background) and a one-shot or loop on Overlay A.
+2. Pick an audio source: **Test beat** for a quick look, or **System audio** / your mixer with music playing.
+3. In **Effects & modulation**, choose **A** and click **Kick Bump**. **Expected:** the Overlay A clip bumps on every kick. Click it again to remove it.
+4. Choose **Master** and click **Drop Flash**. **Expected:** a white flash and zoom on each phrase start (every 8 bars by default; the bar counter in the Beat panel shows where you are).
+5. Choose **BG**, add **Kaleidoscope**, then **Add modulator**. Set the target to **Kaleidoscope: Rotation**, source **LFO**, **Saw**, **2 bars**, range 0 to 360. **Expected:** the kaleidoscope turns one full revolution every 2 bars, staying locked through tempo changes. Try tapping a new tempo.
+6. On **A**, add a modulator with target **Opacity** and an LFO **Sine** at **1 bar**. **Expected:** the clip fades out to nothing on each downbeat and is fully visible on beat 3.
+7. Try **Feedback / trails** on a moving GIF, **RGB split** with an **Audio band → Bass** modulator on its offset, and **Snare Strobe** on the master.
+8. Optional: with `npm run fixtures:perf` clips on all four layers and several effects each, the debug overlay should stay at 60 fps. The overlay also shows the number of effect passes.
+
+### Decisions and defaults (flag any you want changed)
+
+- **One chain per layer plus master**, not per pad. A pad's clip gets the effects of the layer it lands on, which fits the auto-routing: put Kick Bump on Overlay A and every meme pad bumps.
+- **Modulators add to a base value** (offset ranges), rather than replacing it. "Scale +10% on kick" is a range of 0..0.1. Several modulators on one target sum.
+- **"Snare" triggers:** the Snare Strobe preset uses **beats 2 & 4** from the beat clock, not the detected snare/hat onsets. That keeps it on the grid even when hi-hats are busy. The detected trigger is available as a source too.
+- **LFO and envelope shapes:**
+  - Sine and triangle LFOs start at 0 on the downbeat and peak mid-cycle.
+  - Envelopes rise linearly over the attack, then fall quadratically over the decay (a punchy shape).
+- **Shake** zooms in slightly, in proportion to its distance, so the moved edges never show black.
+- **Effects and modulators aren't saved yet** (Phase 8), the same as layers and pads.
+
+### Known issues / limitations
+
+- **Effects apply to the whole layer area**, not just the clip's bounding box. Mirror and kaleidoscope on a small corner clip reflect it around the screen center. This is often fun, but it isn't a "local" effect.
+- **Cover fit in a half position isn't cropped.** A clip covering the left half spills into the right half; contain (the default) is unaffected.
+- **Kick and snare/hat envelope triggers** start when the onset message reaches the output, which is slightly after the hit. With the latency offset set from Phase 3, they line up with beat-grid triggers, but they don't anticipate the hit.
+- **GPU cost** was only measured on this machine. Each active layer effect costs a full-screen pass at output resolution, so weaker GPUs may need fewer stacked effects. Phase 8's graceful degradation will cover this.
+
+### Open questions for you
+
+1. Are layer-level and master-level chains enough, or do you also want effects attached to individual pads (for example, a specific meme always enters with RGB split)?
+2. Should the presets be editable and saveable as your own presets? That would land with set saving in Phase 8.
+3. Do you want more "fun" presets, for example a **Hue Cycle** (hue rotate on a 4-bar saw), a **Wobble** (rotation on a 1-beat sine) or **Tunnel** (feedback with zoom)?

@@ -138,6 +138,11 @@ export class BeatClock {
     return this.rate
   }
 
+  /** Beats to add to a position so bar boundaries fall on multiples of 4. */
+  get barOffsetBeats(): number {
+    return this.barOffset
+  }
+
   /** Size of a grid unit in beats, and the offset its boundaries are aligned to. */
   private grid(unit: GridUnit): { size: number; offset: number } {
     switch (unit) {

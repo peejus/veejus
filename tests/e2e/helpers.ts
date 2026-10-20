@@ -52,6 +52,7 @@ export interface OutputTestState {
     }
   >
   takeoverActive: boolean
+  fx: { passes: number; history: number }
   current: {
     id: string
     kind: 'video' | 'image'

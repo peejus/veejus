@@ -19,6 +19,8 @@ import {
   type MasterSettings,
 } from '@shared/layers'
 import type { PadSource } from '@shared/pads'
+import { FX_SCOPES, emptyFxConfig, type FxConfig, type FxScope } from '@shared/fx'
+import { resolveChain, type ModContext, type ResolvedChain } from '@core/modulation/modulation'
 import { HOP_SIZE } from '@core/audio/analyzer'
 import { BeatEngine } from '@core/beat/beatEngine'
 import { TriggerScheduler, type TriggerAction } from '@core/trigger/scheduler'
@@ -79,6 +81,36 @@ let master: MasterSettings = { ...DEFAULT_MASTER }
 let previewEnabled = false
 let lastPreviewAt = 0
 let layerStateSent = ''
+let fxConfig: FxConfig = emptyFxConfig()
+/** Beat positions of the latest detected kick / high onsets (envelope triggers). */
+let lastKickPos: number | null = null
+let lastHighPos: number | null = null
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
+
+function modContext(now: number): ModContext {
+  return {
+    pos: beat.clock.position(now),
+    barOffset: beat.clock.barOffsetBeats,
+    phraseBeats: 4 * beat.clock.phraseBars,
+    lastKickPos,
+    lastHighPos,
+    bands: audio.snapshot.bands,
+  }
+}
+
+function resolveAll(now: number): Record<FxScope, ResolvedChain> {
+  const ctx = modContext(now)
+  return Object.fromEntries(FX_SCOPES.map((s) => [s, resolveChain(fxConfig[s], ctx)])) as Record<
+    FxScope,
+    ResolvedChain
+  >
+}
+
+/** Modulated chains for the frame being drawn (resolved at the top of each frame). */
+let resolved: Record<FxScope, ResolvedChain> | null = null
+/** Beat position the current frame was resolved at. */
+let frameBeatPos = 0
 
 /** Is anything visible on the takeover layer right now? */
 function takeoverActive(): boolean {
@@ -90,7 +122,8 @@ function layerOpacity(id: LayerId, now: number, takeover: boolean): number {
   const cfg = layersConfig.layers[id]
   const anySolo = LAYER_IDS.some((l) => layersConfig.layers[l].solo)
   if (cfg.muted || (anySolo && !cfg.solo)) return 0
-  let a = cfg.opacity * scheduler.opacity(id, now, beat.clock)
+  const mod = resolved?.[id].opacity ?? 0
+  let a = clamp01(cfg.opacity + mod) * scheduler.opacity(id, now, beat.clock)
   if (takeover && id !== 'takeover') {
     if (layersConfig.takeoverMode === 'hide') return 0
     if (layersConfig.takeoverMode === 'dim') a *= 1 - layersConfig.takeoverDim
@@ -146,6 +179,9 @@ const audio = new AudioEngine({
   onMeters: (meters) => bridge.sendToControl({ type: 'audioMeters', meters }),
   onOnset: (band, strength, timeS, flux) => {
     beat.pushOnset(band, timeS, strength, flux)
+    const pos = beat.clock.position(performance.now())
+    if (band === 'low') lastKickPos = pos
+    else lastHighPos = pos
     bridge.sendToControl({ type: 'audioOnset', band, strength })
   },
   onFlux: (low, high, endTime, receivedAtMs) => {
@@ -311,6 +347,9 @@ bridge.onControlMessage((msg) => {
     case 'setMaster':
       master = { ...msg.master }
       break
+    case 'setFx':
+      fxConfig = structuredClone(msg.config)
+      break
     case 'setPreview':
       previewEnabled = msg.enabled
       break
@@ -377,6 +416,7 @@ function updateOverlay(): void {
     `size   ${width}x${height}\n` +
     `bg     ${rgbToHex(background)}  master ${Math.round(master.brightness * 100)}%${master.blackout ? ' BLACKOUT' : ''}\n` +
     `layers\n${layerLines}\n` +
+    `fx     ${stage.passesLastFrame} effect passes, ${stage.historyCount} trail buffers\n` +
     `media  ${m.readyClips} ready, ${m.loadingClips} loading\n` +
     `       images ${(m.imageBytes / MB).toFixed(0)}/${(m.imageBudgetBytes / MB).toFixed(0)} MB, ` +
     `videos ${m.warmVideos}/${m.warmVideoLimit} warm\n` +
@@ -408,7 +448,7 @@ function audioOverlayText(): string {
 }
 
 function masterBrightness(): number {
-  return master.blackout ? 0 : master.brightness
+  return master.blackout ? 0 : clamp01(master.brightness + (resolved?.master.opacity ?? 0))
 }
 
 /** JS time spent in each recent frame callback, ms. */
@@ -428,6 +468,10 @@ function frame(now: number): void {
   }
   applyTriggerActions(scheduler.update(now, dt > 0 ? dt : 1000 / 60, beat.clock), now)
 
+  const fx = resolveAll(now)
+  resolved = fx
+  const beatPos = beat.clock.position(now)
+  frameBeatPos = beatPos
   const takeover = takeoverActive()
   const pauseBelow = takeover && layersConfig.takeoverMode === 'pause'
   stage.beginFrame(background)
@@ -439,9 +483,16 @@ function frame(now: number): void {
       opacity: layerOpacity(id, now, takeover),
       blend: layersConfig.layers[id].blend,
       entranceProgress: entranceProgress(id, now),
+      offset: fx[id],
+      fx: { scope: id, effects: fx[id].effects, beat: beatPos },
     })
   }
-  stage.endFrame(masterBrightness())
+  const m = fx.master
+  stage.endFrame(
+    masterBrightness(),
+    { scope: 'master', effects: m.effects, beat: beatPos },
+    { scale: m.scale, rotationDeg: m.rotation, x: m.x, y: m.y },
+  )
 
   while (pixelRequests.length > 0) {
     const r = pixelRequests.shift()!
@@ -543,6 +594,15 @@ function frame(now: number): void {
       ),
       layersConfig,
       master,
+      fx: {
+        config: fxConfig,
+        passes: stage.passesLastFrame,
+        history: stage.historyCount,
+        resolved,
+        lastKickPos,
+        framePos: frameBeatPos,
+        barOffset: beat.clock.barOffsetBeats,
+      },
       takeoverActive: takeover,
       current: cur
         ? {

@@ -5,6 +5,8 @@ import { AudioPanel } from './AudioPanel'
 import { BeatPanel } from './BeatPanel'
 import { LayersPanel, PreviewMonitor } from './LayersPanel'
 import { PadEditor } from './PadEditor'
+import { FxPanel } from './FxPanel'
+import { useFx } from './useFx'
 import { useBlackoutShortcut, useLayers } from './useLayers'
 import { PadGrid } from './PadGrid'
 import { usePads, usePadShortcuts } from './usePads'
@@ -37,6 +39,7 @@ export function App() {
   const pads = usePads()
   usePadShortcuts(pads)
   const layers = useLayers()
+  const fx = useFx()
   useBlackoutShortcut(layers)
   const { setBackground, send } = link
   const [color, setColor] = useState('#000000')
@@ -126,6 +129,8 @@ export function App() {
           <PadEditor pads={pads} clips={library.clips} />
 
           <LayersPanel layers={layers} clips={library.clips} />
+
+          <FxPanel fx={fx} />
 
           <PlaybackPanel
             settings={layerSettings}

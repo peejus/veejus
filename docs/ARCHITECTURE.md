@@ -128,11 +128,36 @@
   - **Blending:** all blending happens in `LAYER_FS` against the copy, so blend modes don't depend on fixed-function GL blending.
   - **Textures:** clip textures are premultiplied (video via the upload flag, images via premultiplied ImageBitmaps).
 
+## Effects and modulation
+
+```
+ frame:  ctx = { beat position, bar offset, phrase length, last kick/high positions, band levels }
+         resolveChain(chain, ctx) for each layer + master   (pure, src/core/modulation)
+             base params + Σ amount · lerp(min, max, source)  ─▶ clamped to each param's range
+         ClipLayer.render: transform += scale / rotation / move offsets; opacity += offset
+         Stage.drawLayer: no active effects ─▶ direct composite (as before)
+                          otherwise ─▶ clip alone onto transparent fxA ─▶ effect passes
+                                       (ping-pong fxA/fxB; feedback uses its own history pair)
+                                       ─▶ composite result with the layer's blend/opacity
+         Stage.endFrame: master chain over the composite ─▶ master pass (brightness + master
+                         zoom/rotate/move) ─▶ screen (and the preview)
+```
+
+- **Types:** `src/shared/fx.ts` holds `EFFECT_DEFS` (every effect, its parameters and ranges), `Modulator` and `ModSource`, `FxConfig` (one chain per layer plus master), the presets and the guards.
+- **Ownership:** the control owns the config (`useFx`) and sends the whole `FxConfig` on every change (`setFx`), like the layer mix.
+- **Time base:** every musical source is a function of the beat clock's **position in beats**, never of wall time.
+  - LFOs: `phase = frac((pos + barOffset) / period + offset)`. The clock position is continuous and only moves forward, so tempo changes never make an LFO jump.
+  - Envelopes: shaped by beats elapsed since the last trigger. Beat, backbeat, bar and phrase triggers are computed from the position. Kick and high triggers store the clock position when the onset message arrives.
+- **Targets:** modulator targets are `opacity`, `scale`, `rotation`, `x`, `y` (chain parameters), or `<effectId>.<param>`. On the master, `opacity` adds to brightness and the transform parameters move the whole frame.
+- **Effect shader:** one program (`effectShader.ts`) with a type switch. It works in premultiplied RGBA, so layer chains keep transparency.
+  - **Zero-cost when idle:** an effect at zero strength (`effectIsActive`) is skipped. A layer with no active effects takes the original direct path.
+  - **Feedback history:** kept per scope and effect id, and freed after 2 unused frames.
+
 ## Messages (`src/shared/protocol.ts`)
 
 | Channel                 | Direction               | Payload                                                                                                                                                                                                                                                           |
 | ----------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `veejus:to-output`      | control → main → output | `ControlToOutput`: `setBackground`, `ping`, `setDebugOverlay`, `playClip`, `stopClip`, `setLayerSettings`, `requestStatus`                                                                                                                                        |
+| `veejus:to-output`      | control → main → output | `ControlToOutput`: `setBackground`, `ping`, `setDebugOverlay`, `playClip`, `stopClip`, `setLayerSettings`, `requestStatus`, audio/beat/pad commands, `setLayers`, `setMaster`, `setPreview`, `stopLayer`, `setFx`                                                 |
 | `veejus:to-control`     | output → main → control | `OutputToControl`: `outputReady`, `pong`, `frameStats`, `backgroundApplied`, `clipState`, `clipStarted`, `clipEnded`, `mediaStats`, `audioStatus`, `audioDevices`, `audioMeters`, `audioOnset`, `beatState`, `beat`, `triggerState`, `layerState`, `previewFrame` |
 | `veejus:main-request`   | control → main (invoke) | `MainRequest` → `MainResponse` (displays, fullscreen, library import/remove)                                                                                                                                                                                      |
 | `veejus:output-state`   | main → control          | `OutputWindowState` (display, fullscreen, visible)                                                                                                                                                                                                                |
@@ -148,8 +173,8 @@ Main checks the sender of every message and runs the matching `is…` guard befo
 src/
   main/         Electron main process: windows, IPC, library, media protocol
   preload/      contextBridge APIs, one per window
-  shared/       protocol types + guards; audio, beat, pad and layer types + guards; media types,
-                HTTP range, colors
+  shared/       protocol types + guards; audio, beat, pad, layer and fx types + guards; media
+                types, HTTP range, colors
   core/         pure TypeScript engine modules (no DOM/Electron); unit-tested
                 FrameStats, FrameTimeline, LruBudget, fitRect, placeClip.
                 audio/: RealFft, EnvelopeFollower, OnsetDetector, AudioAnalyzer,
@@ -157,11 +182,12 @@ src/
                 beat/:  TempoEstimator, BeatTracker, TapTempo, ClockSync, BeatClock,
                         BeatEngine, simulate (offline pipeline)
                 trigger/: TriggerScheduler, pickRandom
+                modulation/: LFOs, beat envelopes, audio sources, resolveChain
   renderer/
-    control/    React control UI: PreviewMonitor, LayersPanel, PadGrid, PadEditor, BeatPanel,
+    control/    React control UI: PreviewMonitor, LayersPanel, FxPanel (+ useFx), PadGrid, PadEditor, BeatPanel,
                 LibraryPanel, PlaybackPanel, AudioPanel, probe queue, hooks (useLayers + blackout key,
                 usePads + pad keys, useBeat + tempo keys, useAudio, useLibrary, useOutputLink)
-    output/     Stage (WebGL2 compositor), ClipLayer x4, media/ (MediaManager, VideoClip, ImageClip),
+    output/     Stage (WebGL2 compositor + effect chains), effectShader, ClipLayer x4, media/ (MediaManager, VideoClip, ImageClip),
                 audio/ (AudioEngine, analysis.worklet), metronome
 tests/
   unit/         Vitest, for core/, shared/ and main/library
@@ -173,6 +199,5 @@ fixtures/       media/ and keying/ (committed); stress/, perf/ and audio/ (gener
 
 ## Seams for later phases
 
-- `ClipLayer` becomes one of several layers in a compositor (Phase 5). `Stage.drawTexture` already takes a rect and an opacity.
-- Phase 6 adds a per-layer effect chain (shader passes after the layer shader) and a modulation system that drives layer/effect/placement parameters from audio bands, onsets and beat-synced LFOs.
-- `ImageClip` timing (`FrameTimeline`) is speed-scaled elapsed time. Phase 4 can drive the elapsed time from beats to tempo-sync GIFs.
+- **Phase 7 (MIDI):** a MIDI CC can drive any `FxConfig` number through the same target strings (`opacity`, `<effectId>.<param>`). A "MIDI" `ModSource` kind would slot into `sourceValue`.
+- **Phase 8 (saving):** `FxConfig`, `LayersConfig` and the pads are plain JSON with guards, ready to save in a set file.

@@ -6,6 +6,7 @@
  */
 
 import type { ClipKind } from './mediaTypes'
+import { isFxConfig, type FxConfig } from './fx'
 import {
   isAnalysisSettings,
   isAudioDeviceList,
@@ -123,6 +124,8 @@ export type ControlToOutput =
   | { type: 'setPreview'; enabled: boolean }
   /** Clear one layer (and stop the pad on it). */
   | { type: 'stopLayer'; layer: LayerId }
+  /** Effects and modulators for every layer and the master. */
+  | { type: 'setFx'; config: FxConfig }
 
 export interface FrameStatsSnapshot {
   fps: number
@@ -308,6 +311,8 @@ export function isControlToOutput(v: unknown): v is ControlToOutput {
       return typeof v.enabled === 'boolean'
     case 'stopLayer':
       return isLayerId(v.layer)
+    case 'setFx':
+      return isFxConfig(v.config)
     case 'setLayerSettings':
       return isLayerSettings(v.settings)
     default:

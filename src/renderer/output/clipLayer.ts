@@ -2,7 +2,7 @@ import { placeClip, type Transform } from '@core/placement'
 import { DEFAULT_PLACEMENT, type BlendMode, type KeySettings, type Placement } from '@shared/layers'
 import type { LayerSettings } from '@shared/protocol'
 import type { LoadedClip, MediaManager } from './media/mediaManager'
-import type { Stage, StageTexture } from './stage'
+import type { FxPass, Stage, StageTexture } from './stage'
 
 /** Longest time step applied in one frame, so a stall doesn't make clips jump ahead. */
 const MAX_STEP_MS = 100
@@ -31,6 +31,9 @@ export interface RenderOptions {
   blend: BlendMode
   /** 0..1 progress of the entrance animation (1 = done). */
   entranceProgress: number
+  /** Modulated transform offsets from the layer's chain: scale fraction, degrees, fractions. */
+  offset?: { scale: number; rotation: number; x: number; y: number }
+  fx?: FxPass | null
 }
 
 interface Playing {
@@ -232,8 +235,17 @@ export class ClipLayer {
       entranceProgress: o.entranceProgress,
       random: p.random,
     })
+    const off = o.offset
+    if (off) {
+      const k = Math.max(0, 1 + off.scale)
+      t.w *= k
+      t.h *= k
+      t.rotation += (off.rotation * Math.PI) / 180
+      t.cx += off.x * width
+      t.cy += off.y * height
+    }
     this.lastTransform = t
-    this.stage.drawLayer(tex, t, { opacity: o.opacity, blend: o.blend, key: p.key })
+    this.stage.drawLayer(tex, t, { opacity: o.opacity, blend: o.blend, key: p.key, fx: o.fx })
     if (!p.started) {
       p.started = true
       this.events.onStarted(p.id, frameNumber - p.requestedAtFrame)

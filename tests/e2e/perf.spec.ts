@@ -9,6 +9,13 @@ import {
 } from '../../src/shared/layers'
 import type { PadSpec } from '../../src/shared/pads'
 import {
+  defaultParams,
+  emptyFxConfig,
+  presetItems,
+  type EffectType,
+  type Modulator,
+} from '../../src/shared/fx'
+import {
   FIXTURES,
   importPaths,
   launchApp,
@@ -34,6 +41,33 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await h?.app.close()
 })
+
+/** Warm up, then sample the rolling frame stats every 500 ms for 6 s. */
+async function measure(label: string) {
+  await h.output.waitForTimeout(2000)
+  const samples: { fps: number; frameTimeMaxMs: number; droppedFrames: number }[] = []
+  for (let i = 0; i < 12; i++) {
+    await h.output.waitForTimeout(500)
+    samples.push((await readOutput(h.output)).frameStats)
+  }
+  const minFps = Math.min(...samples.map((s) => s.fps))
+  const avgFps = samples.reduce((a, s) => a + s.fps, 0) / samples.length
+  const maxFrame = Math.max(...samples.map((s) => s.frameTimeMaxMs))
+  const drops = samples.reduce((a, s) => a + s.droppedFrames, 0)
+  const cpu = (await h.output.evaluate(
+    () =>
+      (
+        globalThis as unknown as { __veejusOutput: { getState(): { cpu: unknown } } }
+      ).__veejusOutput.getState().cpu,
+  )) as { avgMs: number; maxMs: number }
+  const summary =
+    `${label}: avg ${avgFps.toFixed(1)} fps, min ${minFps.toFixed(1)} fps, ` +
+    `max frame ${maxFrame.toFixed(1)} ms, dropped-frame samples ${drops}; ` +
+    `frame JS ${cpu.avgMs.toFixed(2)} ms avg / ${cpu.maxMs.toFixed(2)} ms max`
+  console.log(summary)
+  test.info().annotations.push({ type: 'measurements', description: summary })
+  return { avgFps, minFps }
+}
 
 test('four layers at 1080p hold 60 fps (acceptance)', async () => {
   test.setTimeout(120_000)
@@ -88,29 +122,48 @@ test('four layers at 1080p hold 60 fps (acceptance)', async () => {
   const layers = (await readOutput(h.output)).layers
   for (const l of Object.values(layers)) expect(l.clipId).not.toBeNull()
 
-  // Warm up, then sample the rolling frame stats every 500 ms for 6 s.
-  await h.output.waitForTimeout(2000)
-  const samples: { fps: number; frameTimeMaxMs: number; droppedFrames: number }[] = []
-  for (let i = 0; i < 12; i++) {
-    await h.output.waitForTimeout(500)
-    samples.push((await readOutput(h.output)).frameStats)
-  }
-  const minFps = Math.min(...samples.map((s) => s.fps))
-  const avgFps = samples.reduce((a, s) => a + s.fps, 0) / samples.length
-  const maxFrame = Math.max(...samples.map((s) => s.frameTimeMaxMs))
-  const drops = samples.reduce((a, s) => a + s.droppedFrames, 0)
-  const cpu = (await h.output.evaluate(
-    () =>
-      (
-        globalThis as unknown as { __veejusOutput: { getState(): { cpu: unknown } } }
-      ).__veejusOutput.getState().cpu,
-  )) as { avgMs: number; maxMs: number }
-  const summary =
-    `1920x1080, 4 layers + preview: avg ${avgFps.toFixed(1)} fps, min ${minFps.toFixed(1)} fps, ` +
-    `max frame ${maxFrame.toFixed(1)} ms, dropped-frame samples ${drops}; ` +
-    `frame JS ${cpu.avgMs.toFixed(2)} ms avg / ${cpu.maxMs.toFixed(2)} ms max`
-  console.log(summary)
-  test.info().annotations.push({ type: 'measurements', description: summary })
-  expect(avgFps).toBeGreaterThanOrEqual(59)
-  expect(minFps).toBeGreaterThanOrEqual(57)
+  const r = await measure('1920x1080, 4 layers + preview')
+  expect(r.avgFps).toBeGreaterThanOrEqual(59)
+  expect(r.minFps).toBeGreaterThanOrEqual(57)
+})
+
+test('effects on every layer and the master hold 60 fps at 1080p (acceptance)', async () => {
+  test.setTimeout(60_000)
+  // Continues from the test above: four 1080p layers playing, no takeover dimming.
+  const fx = (id: string, type: EffectType, params: Record<string, number> = {}) => ({
+    id,
+    type,
+    enabled: true,
+    params: { ...defaultParams(type), ...params },
+  })
+  const lfo = (id: string, target: string, max: number): Modulator => ({
+    id,
+    enabled: true,
+    target,
+    source: { kind: 'lfo', shape: 'sine', periodBeats: 4, phase: 0 },
+    amount: 1,
+    min: 0,
+    max,
+    invert: false,
+  })
+  const config = emptyFxConfig()
+  config.background.effects.push(fx('bk', 'kaleidoscope'), fx('bh', 'hueRotate'))
+  config.background.mods.push(lfo('bm', 'bk.angle', 90))
+  config.overlayA.effects.push(fx('ar', 'rgbSplit'), fx('af', 'feedback'))
+  config.overlayA.mods.push(...presetItems('kickBump', 'ka').mods, lfo('am', 'rotation', 20))
+  config.overlayB.effects.push(fx('bp', 'pixelate'), fx('bm2', 'mirror', { mode: 2 }))
+  config.overlayB.mods.push(lfo('bpm', 'bp.amount', 24))
+  config.takeover.effects.push(fx('ts', 'shake'), fx('ti', 'invert', { amount: 0.5 }))
+  config.master.effects.push(
+    fx('mz', 'zoomBump', { amount: 0.05 }),
+    fx('ms', 'strobe', { amount: 0.3, rate: 2 }),
+    fx('mf', 'feedback', { amount: 0.6 }),
+  )
+  config.master.mods.push(lfo('mm', 'mz.amount', 0.1))
+  await sendToOutput(h.control, { type: 'setFx', config })
+  // 2 effect passes on each of the 4 layers and 3 on the master, every frame.
+  await expect.poll(async () => (await readOutput(h.output)).fx.passes).toBe(11)
+  const r = await measure('1920x1080, 4 layers + 11 effect passes + preview')
+  expect(r.avgFps).toBeGreaterThanOrEqual(59)
+  expect(r.minFps).toBeGreaterThanOrEqual(57)
 })

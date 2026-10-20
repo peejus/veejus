@@ -53,11 +53,13 @@ export function placeClip(
   if (clipW <= 0 || clipH <= 0 || outW <= 0 || outH <= 0)
     return { cx: 0, cy: 0, w: 0, h: 0, rotation: 0 }
 
-  if (p.anchor === 'full') {
-    const r = fitRect(clipW, clipH, outW, outH, p.fit)
+  if (p.anchor === 'full' || p.anchor === 'leftHalf' || p.anchor === 'rightHalf') {
+    // Fill the screen, or one half of it, using the fit mode.
+    const half = p.anchor !== 'full'
+    const r = fitRect(clipW, clipH, half ? outW / 2 : outW, outH, p.fit)
     w = r.w
     h = r.h
-    cx = r.x + r.w / 2
+    cx = r.x + r.w / 2 + (p.anchor === 'rightHalf' ? outW / 2 : 0)
     cy = r.y + r.h / 2
   } else {
     h = p.size * outH
@@ -71,6 +73,10 @@ export function placeClip(
       case 'center':
         cx = outW / 2
         cy = outH / 2
+        break
+      case 'lowerThird':
+        cx = outW / 2
+        cy = bottom
         break
       case 'topLeft':
         cx = left
