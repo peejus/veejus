@@ -48,6 +48,8 @@ export interface Onset {
   /** Estimated onset time in analyzer seconds (samples processed / sample rate). */
   time: number
   strength: number
+  /** Raw spectral flux at the onset (absolute, unlike `strength`). */
+  flux: number
 }
 
 export interface AnalyzerFrame {
@@ -59,6 +61,8 @@ export interface AnalyzerFrame {
   rms: number
   peak: number
   onsets: Onset[]
+  /** Spectral flux per onset range: the onset-strength signal for tempo tracking. */
+  flux: Record<OnsetBand, number>
 }
 
 const dbToGain = (db: number) => Math.pow(10, db / 20)
@@ -210,6 +214,7 @@ export class AudioAnalyzer {
       this.logMags[k] = Math.log(1 + FLUX_COMPRESSION * this.mags[k]! * this.magScale)
     }
     const onsets: Onset[] = []
+    const fluxes: Record<OnsetBand, number> = { low: 0, high: 0 }
     const reference = this.laggedMaxLogMags[0]!
     for (const band of ['low', 'high'] as const) {
       const [lo, hi] = this.onsetBins[band]
@@ -219,6 +224,7 @@ export class AudioAnalyzer {
         if (d > 0) flux += d
       }
       flux /= hi - lo + 1
+      fluxes[band] = flux
       const hit = this.detectors[band].push(flux, time)
       if (hit) {
         // The detector judges the previous frame (one-hop lookahead).
@@ -226,6 +232,7 @@ export class AudioAnalyzer {
           band,
           time: Math.max(0, hit.time - this.onsetCompensationS),
           strength: hit.strength,
+          flux: hit.flux,
         })
       }
     }
@@ -246,7 +253,7 @@ export class AudioAnalyzer {
     const peak = this.hopPeak
     this.hopSumSq = 0
     this.hopPeak = 0
-    return { time, bands: this.bandLevels, rms, peak, onsets }
+    return { time, bands: this.bandLevels, rms, peak, onsets, flux: fluxes }
   }
 
   /**

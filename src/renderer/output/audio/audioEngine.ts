@@ -15,8 +15,15 @@ import type { WorkletMessage } from './workletMessages'
 export interface AudioEngineEvents {
   onStatus(status: AudioStatus): void
   onMeters(meters: AudioMeters): void
-  /** `atMs` is the estimated performance.now() time of the onset itself. */
-  onOnset(band: OnsetBand, strength: number, atMs: number): void
+  /**
+   * `timeS` is the onset in analysis seconds, `atMs` its estimated performance.now() time.
+   * `flux` is the raw onset flux.
+   */
+  onOnset(band: OnsetBand, strength: number, timeS: number, flux: number, atMs: number): void
+  /** A batch of onset-strength values (one per hop) ending at analysis time `endTime`. */
+  onFlux(low: number[], high: number[], endTime: number, receivedAtMs: number): void
+  /** The input changed; analysis history no longer applies. */
+  onSourceChange(sampleRate: number | null): void
   onDevices(devices: AudioDevice[]): void
 }
 
@@ -98,7 +105,10 @@ export class AudioEngine {
     switch (msg.type) {
       case 'onset':
         this.onsetCounts[msg.band]++
-        this.events.onOnset(msg.band, msg.strength, now - msg.delayS * 1000)
+        this.events.onOnset(msg.band, msg.strength, msg.time, msg.flux, now - msg.delayS * 1000)
+        break
+      case 'flux':
+        this.events.onFlux(msg.low, msg.high, msg.endTime, now)
         break
       case 'bands':
         this.snapshot.bands.set(msg.bands)
@@ -128,6 +138,7 @@ export class AudioEngine {
   async setSource(source: AudioSource | null): Promise<void> {
     const token = ++this.sourceToken
     this.detachSource()
+    this.events.onSourceChange(null)
     if (!source) {
       this.setStatus({ state: 'off', source: null })
       if (this.ctx?.state === 'running') await this.ctx.suspend()
@@ -155,6 +166,7 @@ export class AudioEngine {
           this.setStatus({ state: 'error', source, label, error: 'Input disconnected' })
         })
       }
+      this.events.onSourceChange(ctx.sampleRate)
       this.setStatus({ state: 'running', source, label, sampleRate: ctx.sampleRate })
       if (source.kind === 'device') void this.listDevices()
     } catch (err) {

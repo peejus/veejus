@@ -70,17 +70,35 @@
 - **Onset times** reach the output main thread with a detection delay. `AudioEngine` converts them to `performance.now()` time (`onOnset(..., atMs)`), ready for the Phase 3 beat clock.
 - **Main** grants `media` permission only to the output window, and only for audio. On Windows it answers `getDisplayMedia` with the primary screen plus `audio: 'loopback'`; the output drops the video track.
 
+## Beat clock
+
+```
+ worklet ──flux batch (8 hops, with stream time)──▶ BeatEngine.observeSync + pushFlux ──▶ TempoEstimator
+         ──onset (stream time, strength, flux)───▶ BeatEngine.pushOnset ─────────────▶ BeatTracker (PLL)
+                                                                                         │ period + beat time
+ control ──beatCommand (tap, setBpm, nudge…)─────▶ BeatEngine.command ──▶ TapTempo      ▼ (via ClockSync)
+                                                                        BeatClock (performance.now, visual timeline)
+ output render loop, every frame: BeatEngine.update(now) ──▶ beat events ──▶ overlay metronome, control 'beat'
+                                                         └─▶ 'beatState' to control ~10/s
+```
+
+- **`TempoEstimator`**: harmonic autocorrelation of the onset-strength signal over 8 s, every 0.5 s. It resolves octaves (preferring the faster tempo when it is ≥70% as supported) and reports a confidence.
+- **`BeatTracker`** works in stream seconds. A PLL on kick onsets (snare/hat fallback) ignores weak off-beat onsets, re-acquires on a consistent strong phase change, and measures the period precisely from on-beat hits.
+- **`BeatEngine`** smooths and confirms tempo, handles auto/locked modes, ×2/÷2 and the manual commands. It converts stream time to `performance.now()` through `ClockSync`, which uses the minimum message-delivery offset.
+- **`BeatClock`** is the single source of musical time for everything visual. It is monotonic, converges instead of jumping, applies the latency offset, and counts bars (barOffset set by resync) and phrases.
+- **`simulate.ts`** runs analyzer plus engine in simulated time with message jitter. It is used by the accuracy tests and `npm run analyze`.
+
 ## Messages (`src/shared/protocol.ts`)
 
-| Channel                 | Direction               | Payload                                                                                                                                                                                        |
-| ----------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `veejus:to-output`      | control → main → output | `ControlToOutput`: `setBackground`, `ping`, `setDebugOverlay`, `playClip`, `stopClip`, `setLayerSettings`, `requestStatus`                                                                     |
-| `veejus:to-control`     | output → main → control | `OutputToControl`: `outputReady`, `pong`, `frameStats`, `backgroundApplied`, `clipState`, `clipStarted`, `clipEnded`, `mediaStats`, `audioStatus`, `audioDevices`, `audioMeters`, `audioOnset` |
-| `veejus:main-request`   | control → main (invoke) | `MainRequest` → `MainResponse` (displays, fullscreen, library import/remove)                                                                                                                   |
-| `veejus:output-state`   | main → control          | `OutputWindowState` (display, fullscreen, visible)                                                                                                                                             |
-| `veejus:output-command` | output → main           | `OutputCommand`: `exitFullscreen`, `toggleFullscreen`                                                                                                                                          |
-| `veejus:library`        | main → control, output  | `ClipInfo[]`, the whole library, after every change                                                                                                                                            |
-| `veejus:get-library`    | output → main (invoke)  | current `ClipInfo[]`                                                                                                                                                                           |
+| Channel                 | Direction               | Payload                                                                                                                                                                                                             |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `veejus:to-output`      | control → main → output | `ControlToOutput`: `setBackground`, `ping`, `setDebugOverlay`, `playClip`, `stopClip`, `setLayerSettings`, `requestStatus`                                                                                          |
+| `veejus:to-control`     | output → main → control | `OutputToControl`: `outputReady`, `pong`, `frameStats`, `backgroundApplied`, `clipState`, `clipStarted`, `clipEnded`, `mediaStats`, `audioStatus`, `audioDevices`, `audioMeters`, `audioOnset`, `beatState`, `beat` |
+| `veejus:main-request`   | control → main (invoke) | `MainRequest` → `MainResponse` (displays, fullscreen, library import/remove)                                                                                                                                        |
+| `veejus:output-state`   | main → control          | `OutputWindowState` (display, fullscreen, visible)                                                                                                                                                                  |
+| `veejus:output-command` | output → main           | `OutputCommand`: `exitFullscreen`, `toggleFullscreen`                                                                                                                                                               |
+| `veejus:library`        | main → control, output  | `ClipInfo[]`, the whole library, after every change                                                                                                                                                                 |
+| `veejus:get-library`    | output → main (invoke)  | current `ClipInfo[]`                                                                                                                                                                                                |
 
 Main checks the sender of every message and runs the matching `is…` guard before acting on or forwarding it.
 
@@ -90,16 +108,19 @@ Main checks the sender of every message and runs the matching `is…` guard befo
 src/
   main/         Electron main process: windows, IPC, library, media protocol
   preload/      contextBridge APIs, one per window
-  shared/       protocol types + guards, audio types + guards, media types, HTTP range, colors
+  shared/       protocol types + guards, audio and beat types + guards, media types, HTTP range, colors
   core/         pure TypeScript engine modules (no DOM/Electron); unit-tested
                 FrameStats, FrameTimeline, LruBudget, fitRect.
                 audio/: RealFft, EnvelopeFollower, OnsetDetector, AudioAnalyzer,
                         synth (test patterns), wav, evaluate (scoring + offline runs)
-                Later: BeatClock, Scheduler, ...
+                beat/:  TempoEstimator, BeatTracker, TapTempo, ClockSync, BeatClock,
+                        BeatEngine, simulate (offline pipeline)
+                Later: Scheduler (Phase 4), ...
   renderer/
-    control/    React control UI: LibraryPanel, PlaybackPanel, AudioPanel, probe queue, hooks
+    control/    React control UI: BeatPanel, LibraryPanel, PlaybackPanel, AudioPanel, probe queue,
+                hooks (useBeat + keyboard shortcuts, useAudio, useLibrary, useOutputLink)
     output/     Stage (WebGL2), ClipLayer, media/ (MediaManager, VideoClip, ImageClip),
-                audio/ (AudioEngine, analysis.worklet)
+                audio/ (AudioEngine, analysis.worklet), metronome
 tests/
   unit/         Vitest, for core/, shared/ and main/library
   e2e/          Playwright driving the built Electron app (smoke, library, stress)
@@ -111,5 +132,5 @@ fixtures/       media/ (committed), stress/ and audio/ (generated, gitignored)
 ## Seams for later phases
 
 - `ClipLayer` becomes one of several layers in a compositor (Phase 5). `Stage.drawTexture` already takes a rect and an opacity.
-- `src/core/` gets the `BeatClock` (Phase 3), the single source of musical time, fed by `AudioEngine`'s kick onsets (already in `performance.now()` time). `ClipLayer.play()` currently starts on the next frame. Phase 4 adds a scheduled start time from the clock.
+- Phase 4's scheduler reads `BeatClock` positions and `BeatEvent.atMs` to quantize triggers to beat/bar/phrase on the visual timeline. `ClipLayer.play()` currently starts on the next frame. Phase 4 adds a scheduled start time from the clock.
 - `ImageClip` timing (`FrameTimeline`) is speed-scaled elapsed time. Phase 4 can drive the elapsed time from beats to tempo-sync GIFs.

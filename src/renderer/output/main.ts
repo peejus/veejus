@@ -2,7 +2,10 @@ import { FrameStats } from '@core/frameStats'
 import { isControlToOutput, type OutputBridge, type Rgb } from '@shared/protocol'
 import { rgbToHex } from '@shared/color'
 import { BAND_NAMES } from '@shared/audio'
+import { HOP_SIZE } from '@core/audio/analyzer'
+import { BeatEngine } from '@core/beat/beatEngine'
 import { AudioEngine } from './audio/audioEngine'
+import { Metronome } from './metronome'
 import { ClipLayer } from './clipLayer'
 import { MediaManager } from './media/mediaManager'
 import { Stage } from './stage'
@@ -32,12 +35,32 @@ const layer = new ClipLayer(
   { loop: true, speed: 1, fit: 'contain' },
 )
 
+const BEAT_STATE_INTERVAL_MS = 100
+
+const beat = new BeatEngine(HOP_SIZE / 48000, performance.now())
+const metronome = new Metronome(document.getElementById('metronome') as HTMLDivElement)
+
 const audio = new AudioEngine({
   onStatus: (status) => bridge.sendToControl({ type: 'audioStatus', status }),
   onMeters: (meters) => bridge.sendToControl({ type: 'audioMeters', meters }),
-  onOnset: (band, strength) => bridge.sendToControl({ type: 'audioOnset', band, strength }),
+  onOnset: (band, strength, timeS, flux) => {
+    beat.pushOnset(band, timeS, strength, flux)
+    bridge.sendToControl({ type: 'audioOnset', band, strength })
+  },
+  onFlux: (low, high, endTime, receivedAtMs) => {
+    beat.observeSync(endTime, receivedAtMs)
+    for (let i = 0; i < low.length; i++) beat.pushFlux(low[i]!, high[i]!)
+  },
+  onSourceChange: (sampleRate) => {
+    beat.resetAudio()
+    if (sampleRate) beat.setHopSeconds(HOP_SIZE / sampleRate)
+  },
   onDevices: (devices) => bridge.sendToControl({ type: 'audioDevices', devices }),
 })
+
+function sendBeatState(now = performance.now()): void {
+  bridge.sendToControl({ type: 'beatState', state: beat.state(now) })
+}
 
 let background: Rgb = [0, 0, 0]
 let pendingBackgroundAck = false
@@ -45,6 +68,7 @@ let frameCount = 0
 let lastFrameAt: number | null = null
 let lastOverlayAt = 0
 let lastStatsAt = 0
+let lastBeatStateAt = 0
 
 /** Pixel reads requested by tests; served right after the next frame is drawn. */
 const pixelRequests: { fx: number; fy: number; resolve: (px: number[] | null) => void }[] = []
@@ -61,6 +85,7 @@ bridge.onControlMessage((msg) => {
       break
     case 'setDebugOverlay':
       overlay.hidden = !msg.visible
+      metronome.setVisible(msg.visible)
       break
     case 'playClip':
       layer.play(msg.id, msg.settings, frameCount)
@@ -78,8 +103,13 @@ bridge.onControlMessage((msg) => {
       const cur = layer.current
       if (cur?.started) bridge.sendToControl({ type: 'clipStarted', id: cur.id, waitFrames: 0 })
       bridge.sendToControl({ type: 'audioStatus', status: audio.currentStatus })
+      sendBeatState()
       break
     }
+    case 'beatCommand':
+      beat.command(msg.command, performance.now())
+      sendBeatState()
+      break
     case 'setAudioSource':
       void audio.setSource(msg.source)
       break
@@ -123,9 +153,21 @@ function updateOverlay(): void {
     `clip   ${clipLine}\n` +
     `media  ${m.readyClips} ready, ${m.loadingClips} loading\n` +
     `       images ${(m.imageBytes / MB).toFixed(0)}/${(m.imageBudgetBytes / MB).toFixed(0)} MB, ` +
-    `videos ${m.warmVideos}/${m.warmVideoLimit} warm
-` +
-    audioOverlayText()
+    `videos ${m.warmVideos}/${m.warmVideoLimit} warm\n` +
+    audioOverlayText() +
+    '\n' +
+    beatOverlayText()
+}
+
+function beatOverlayText(): string {
+  const b = beat.state(performance.now())
+  const mode = b.settings.tempoMode === 'auto' ? 'auto' : 'locked'
+  const detected = b.detectedBpm !== null ? `, detected ${b.detectedBpm.toFixed(1)}` : ''
+  return (
+    `beat   ${b.bpm.toFixed(1)} BPM ${mode} (conf ${(b.confidence * 100).toFixed(0)}%${detected})\n` +
+    `       bar ${b.barIndex + 1} beat ${b.beatInBar}, phrase ${b.phraseIndex + 1} ` +
+    `(bar ${b.barInPhrase}/${b.settings.phraseBars}), ${b.inPhase ? 'in phase' : 'searching'}`
+  )
 }
 
 function audioOverlayText(): string {
@@ -133,10 +175,8 @@ function audioOverlayText(): string {
   if (st.state !== 'running') return `audio  ${st.state}${st.error ? `: ${st.error}` : ''}`
   const bands = BAND_NAMES.map((n, i) => `${n[0]}${audio.snapshot.bands[i]!.toFixed(2)}`).join(' ')
   return (
-    `audio  ${st.label} @ ${st.sampleRate} Hz, ~${audio.latencyMs.toFixed(0)} ms
-` +
-    `       ${bands}
-` +
+    `audio  ${st.label} @ ${st.sampleRate} Hz, ~${audio.latencyMs.toFixed(0)} ms\n` +
+    `       ${bands}\n` +
     `       kicks ${audio.onsetCounts.low}, highs ${audio.onsetCounts.high}`
   )
 }
@@ -149,6 +189,15 @@ function frame(now: number): void {
 
   stage.beginFrame(background)
   layer.render(dt, frameCount)
+
+  for (const event of beat.update(now)) {
+    metronome.beat(event.beatInBar)
+    bridge.sendToControl({ type: 'beat', event })
+  }
+  if (now - lastBeatStateAt >= BEAT_STATE_INTERVAL_MS) {
+    lastBeatStateAt = now
+    sendBeatState(now)
+  }
 
   while (pixelRequests.length > 0) {
     const r = pixelRequests.shift()!
@@ -191,6 +240,7 @@ function frame(now: number): void {
         rms: audio.snapshot.rms,
         latencyMs: audio.latencyMs,
       },
+      beat: beat.state(performance.now()),
       current: cur
         ? {
             id: cur.id,

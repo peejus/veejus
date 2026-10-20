@@ -34,3 +34,30 @@ body {
 #debug-overlay[hidden] {
   display: none;
 }
+
+#metronome {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+#metronome[hidden] {
+  display: none;
+}
+#metronome .light {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: #2a2a34;
+}
+#metronome .light.on {
+  background: #2bd6ff;
+}
+#metronome .light.on.downbeat {
+  background: #ff2bd6;
+}

@@ -19,6 +19,14 @@ import {
   type AudioStatus,
   type OnsetBand,
 } from './audio'
+import {
+  isBeatCommand,
+  isBeatEvent,
+  isBeatState,
+  type BeatCommand,
+  type BeatEvent,
+  type BeatState,
+} from './beat'
 
 /** IPC channel names. */
 export const Channel = {
@@ -81,6 +89,7 @@ export type ControlToOutput =
   | { type: 'setAudioSource'; source: AudioSource | null }
   | { type: 'setAnalysisSettings'; settings: AnalysisSettings }
   | { type: 'requestAudioDevices' }
+  | { type: 'beatCommand'; command: BeatCommand }
 
 export interface FrameStatsSnapshot {
   fps: number
@@ -124,6 +133,10 @@ export type OutputToControl =
   | { type: 'audioMeters'; meters: AudioMeters }
   /** Sent the moment an onset is detected. */
   | { type: 'audioOnset'; band: OnsetBand; strength: number }
+  /** Beat clock status, ~10 per second and after every command. */
+  | { type: 'beatState'; state: BeatState }
+  /** Sent on every beat of the visual timeline. */
+  | { type: 'beat'; event: BeatEvent }
 
 /** Window commands the output page can ask main for (e.g. from its own key handling). */
 export type OutputCommand = { type: 'exitFullscreen' } | { type: 'toggleFullscreen' }
@@ -228,6 +241,8 @@ export function isControlToOutput(v: unknown): v is ControlToOutput {
       return v.source === null || isAudioSource(v.source)
     case 'setAnalysisSettings':
       return isAnalysisSettings(v.settings)
+    case 'beatCommand':
+      return isBeatCommand(v.command)
     case 'setLayerSettings':
       return isLayerSettings(v.settings)
     default:
@@ -274,6 +289,10 @@ export function isOutputToControl(v: unknown): v is OutputToControl {
       return isAudioMeters(v.meters)
     case 'audioOnset':
       return (v.band === 'low' || v.band === 'high') && isFiniteNum(v.strength)
+    case 'beatState':
+      return isBeatState(v.state)
+    case 'beat':
+      return isBeatEvent(v.event)
     default:
       return false
   }

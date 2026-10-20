@@ -10,6 +10,8 @@ export interface DrumPattern {
   kick: number[]
   snare: number[]
   hat: number[]
+  /** Metronome clicks (step 0 of each bar is accented). */
+  click?: number[]
   /** Add an offbeat bassline (the usual source of false kick detections). */
   bass?: boolean
   /** Constant white-noise floor, dBFS. Omit for none. */
@@ -25,7 +27,7 @@ export interface RenderedPattern {
   samples: Float32Array
   sampleRate: number
   durationS: number
-  truth: { kick: number[]; snare: number[]; hat: number[] }
+  truth: { kick: number[]; snare: number[]; hat: number[]; click: number[] }
 }
 
 export const PATTERNS = {
@@ -78,7 +80,12 @@ export function renderPattern(p: DrumPattern, sampleRate = 48000): RenderedPatte
   const leadIn = p.leadIn ?? 0.25
   const durationS = leadIn + p.bars * 16 * stepS + 0.5
   const out = new Float32Array(Math.ceil(durationS * sampleRate))
-  const truth = { kick: [] as number[], snare: [] as number[], hat: [] as number[] }
+  const truth = {
+    kick: [] as number[],
+    snare: [] as number[],
+    hat: [] as number[],
+    click: [] as number[],
+  }
 
   const addKick = (start: number) => {
     const lengthS = 0.45
@@ -115,6 +122,14 @@ export function renderPattern(p: DrumPattern, sampleRate = 48000): RenderedPatte
       prev = x
     }
   }
+  const addClick = (start: number, accent: boolean) => {
+    const freq = accent ? 2500 : 1500
+    const n = Math.round(0.02 * sampleRate)
+    for (let i = 0; i < n && start + i < out.length; i++) {
+      const t = i / sampleRate
+      out[start + i]! += 0.5 * Math.sin(2 * Math.PI * freq * t) * Math.exp(-t / 0.004)
+    }
+  }
   const addBass = (start: number, freq: number, lengthS: number) => {
     // Band-limited saw (first 8 harmonics), so it doesn't alias into the hi-hat range.
     const n = Math.round(lengthS * sampleRate)
@@ -144,6 +159,10 @@ export function renderPattern(p: DrumPattern, sampleRate = 48000): RenderedPatte
         addHat(s)
         truth.hat.push(at)
       }
+      if (p.click?.includes(step)) {
+        addClick(s, step === 0)
+        truth.click.push(at)
+      }
       if (p.bass && step % 4 === 2) {
         addBass(s, BASS_NOTES_HZ[(bar + step) % BASS_NOTES_HZ.length]!, stepS * 1.8)
       }
@@ -157,5 +176,37 @@ export function renderPattern(p: DrumPattern, sampleRate = 48000): RenderedPatte
   const g = Math.pow(10, (p.gainDb ?? 0) / 20)
   for (let i = 0; i < out.length; i++) out[i] = Math.tanh(out[i]! * g)
 
+  return { samples: out, sampleRate, durationS, truth }
+}
+
+/**
+ * Render patterns back to back as one continuous track (each segment starts exactly where the
+ * previous one's last bar ends; ringing tails overlap naturally). Ground truth is merged.
+ */
+export function renderSequence(segments: DrumPattern[], sampleRate = 48000): RenderedPattern {
+  const parts: { r: RenderedPattern; offsetS: number }[] = []
+  let offsetS = 0
+  segments.forEach((seg, i) => {
+    const leadIn = i === 0 ? (seg.leadIn ?? 0.25) : 0
+    const r = renderPattern({ ...seg, leadIn, seed: (seg.seed ?? 1) + i }, sampleRate)
+    parts.push({ r, offsetS })
+    offsetS += leadIn + (seg.bars * 16 * 60) / seg.bpm / 4
+  })
+  const durationS = offsetS + 0.5
+  const out = new Float32Array(Math.ceil(durationS * sampleRate))
+  const truth = {
+    kick: [] as number[],
+    snare: [] as number[],
+    hat: [] as number[],
+    click: [] as number[],
+  }
+  for (const { r, offsetS: off } of parts) {
+    const start = Math.round(off * sampleRate)
+    for (let i = 0; i < r.samples.length && start + i < out.length; i++)
+      out[start + i]! += r.samples[i]!
+    for (const key of ['kick', 'snare', 'hat', 'click'] as const) {
+      for (const t of r.truth[key]) truth[key].push(t + start / sampleRate)
+    }
+  }
   return { samples: out, sampleRate, durationS, truth }
 }

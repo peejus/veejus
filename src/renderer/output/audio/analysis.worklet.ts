@@ -28,6 +28,7 @@ const METER_INTERVAL_S = 1 / 30
 const BANDS_EVERY_HOPS = 2
 const SPECTRUM_BINS = 64
 const CLIP_LEVEL = 0.999
+const FLUX_BATCH_HOPS = 8
 
 class AnalysisProcessor extends AudioWorkletProcessor {
   private readonly analyzer: AudioAnalyzer
@@ -41,6 +42,8 @@ class AnalysisProcessor extends AudioWorkletProcessor {
   private lastMeterTime = 0
   /** Running mean of onset detection delay, seconds. */
   private detectionDelay = 0
+  private fluxLow: number[] = []
+  private fluxHigh: number[] = []
 
   constructor(options: { processorOptions: { settings: AnalysisSettings } }) {
     super(options)
@@ -76,7 +79,21 @@ class AnalysisProcessor extends AudioWorkletProcessor {
         const delay = blockEnd - o.time
         this.detectionDelay =
           this.detectionDelay === 0 ? delay : this.detectionDelay * 0.9 + delay * 0.1
-        this.post({ type: 'onset', band: o.band, strength: o.strength, delayS: delay })
+        this.post({
+          type: 'onset',
+          band: o.band,
+          strength: o.strength,
+          flux: o.flux,
+          time: o.time,
+          delayS: delay,
+        })
+      }
+      this.fluxLow.push(frame.flux.low)
+      this.fluxHigh.push(frame.flux.high)
+      if (this.fluxLow.length >= FLUX_BATCH_HOPS) {
+        this.post({ type: 'flux', low: this.fluxLow, high: this.fluxHigh, endTime: frame.time })
+        this.fluxLow = []
+        this.fluxHigh = []
       }
       this.meterSumSq += frame.rms * frame.rms
       this.meterHops++

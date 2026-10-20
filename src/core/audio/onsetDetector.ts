@@ -19,6 +19,8 @@ export interface DetectedOnset {
   time: number
   /** Flux relative to the threshold (>= 1). */
   strength: number
+  /** Raw spectral flux of the peak, comparable across time. */
+  flux: number
 }
 
 export interface OnsetDetectorOptions {
@@ -127,7 +129,7 @@ export class OnsetDetector {
         if (cand > threshold && cand >= peakGate && spaced) {
           this.lastOnsetTime = candTime
           this.lastOnsetFlux = cand
-          onset = { time: candTime, strength: threshold > 0 ? cand / threshold : 1 }
+          onset = { time: candTime, strength: threshold > 0 ? cand / threshold : 1, flux: cand }
           this.onsetFlux.push(cand)
           this.onsetTimes.push(candTime)
           if (this.onsetFlux.length > GATE_ONSETS) {

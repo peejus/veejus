@@ -12,6 +12,7 @@ import { extname } from 'node:path'
 import { DEFAULT_ANALYSIS_SETTINGS, type AnalysisSettings } from '../src/shared/audio'
 import { analyzeOffline, scoreOnsets } from '../src/core/audio/evaluate'
 import { decodeWav, mixToMono } from '../src/core/audio/wav'
+import { simulateBeatTracking } from '../src/core/beat/simulate'
 import { decodeWithFfmpeg, findFfmpeg } from './ffmpeg'
 
 const SAMPLE_RATE = 48000
@@ -59,22 +60,7 @@ const durationS = samples.length / sampleRate
 const kicks = result.onsets.low.map((o) => o.time)
 const highs = result.onsets.high.map((o) => o.time)
 
-/** Rough tempo from the median kick interval, folded into 80-180 BPM. */
-function roughBpm(times: number[]): number | null {
-  const gaps = times
-    .slice(1)
-    .map((t, i) => t - times[i]!)
-    .filter((g) => g > 0.2 && g < 2)
-  if (gaps.length < 4) return null
-  gaps.sort((a, b) => a - b)
-  let bpm = 60 / gaps[gaps.length >> 1]!
-  while (bpm < 80) bpm *= 2
-  while (bpm > 180) bpm /= 2
-  return bpm
-}
-
 const peakDb = 20 * Math.log10(result.maxPeak || 1e-9)
-const bpm = roughBpm(kicks)
 console.log(`File        ${file}`)
 console.log(
   `Duration    ${durationS.toFixed(1)} s @ ${sampleRate} Hz, peak ${peakDb.toFixed(1)} dBFS`,
@@ -82,16 +68,25 @@ console.log(
 console.log(
   `Analyzed    in ${elapsedMs.toFixed(0)} ms (${(durationS / (elapsedMs / 1000)).toFixed(0)}x real time)`,
 )
-console.log(
-  `Kicks       ${kicks.length} (${((kicks.length / durationS) * 60).toFixed(0)}/min)` +
-    (bpm ? `, kick spacing suggests ~${bpm.toFixed(1)} BPM` : ''),
-)
+console.log(`Kicks       ${kicks.length} (${((kicks.length / durationS) * 60).toFixed(0)}/min)`)
 console.log(`Snare/hat   ${highs.length} (${((highs.length / durationS) * 60).toFixed(0)}/min)`)
 console.log(
   `First kicks ${kicks
     .slice(0, 8)
     .map((t) => t.toFixed(3))
     .join('  ')}`,
+)
+
+// Full beat tracking, as the live app would do it.
+const sim = simulateBeatTracking(samples, sampleRate, { analysis: settings })
+const at = (s: number) => sim.bpmTrace.find(([t]) => t >= s)?.[1]
+const finalState = sim.engine.state(sim.beats.at(-1)?.atMs ?? 0)
+const trace = [4, 8, 15, 30, 60]
+  .filter((s) => s < durationS)
+  .map((s) => `${s}s ${at(s)?.toFixed(2) ?? '-'}`)
+  .join(', ')
+console.log(
+  `Tempo       ${trace}; final ${finalState.bpm.toFixed(2)} BPM, ${finalState.inPhase ? 'in phase' : 'not in phase'}`,
 )
 
 const truthPath = arg('--truth')

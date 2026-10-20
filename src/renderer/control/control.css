@@ -660,3 +660,160 @@ select {
   font: inherit;
   font-size: 12px;
 }
+
+/* ---- Tempo ---- */
+
+.tempo-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.bpm-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.bpm-value {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+}
+.bpm-unit {
+  color: var(--muted);
+  font-size: 12px;
+}
+.tempo-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.mode-badge {
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.mode-badge.auto {
+  background: #1f3d2b;
+  color: var(--ok);
+}
+.mode-badge.locked {
+  background: #3d2b1f;
+  color: #ffb31a;
+}
+.detected {
+  font-size: 11px;
+  color: var(--muted);
+}
+.confidence {
+  height: 4px;
+  border-radius: 2px;
+  background: #101016;
+  overflow: hidden;
+}
+.confidence-fill {
+  height: 100%;
+  background: var(--ok);
+}
+
+.beat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.beat-lights {
+  display: flex;
+  gap: 6px;
+}
+.beat-light {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: #262634;
+  border: 1px solid #3a3a50;
+}
+.beat-light.current {
+  border-color: #6a6a90;
+}
+.beat-light.on {
+  background: #2bd6ff;
+  box-shadow: 0 0 10px #2bd6ff;
+}
+.beat-light.downbeat.on {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+}
+.bar-counter {
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.muted {
+  color: var(--muted);
+}
+.phase-state {
+  font-size: 11px;
+  color: var(--muted);
+}
+.phase-state.ok {
+  color: var(--ok);
+}
+
+.tempo-buttons {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr 1fr 1fr 1fr;
+  gap: 6px;
+  margin-top: 12px;
+}
+.tempo-buttons button {
+  padding: 8px 4px;
+}
+.tempo-buttons .tap {
+  font-weight: 700;
+  background: #3a2440;
+  border-color: #5a3466;
+}
+.tempo-buttons .tap:active {
+  background: var(--accent);
+  color: #14141a;
+}
+.tempo-row2 {
+  margin-top: 8px;
+}
+.tempo-row2 button.on {
+  background: #3d2b1f;
+  border-color: #ffb31a;
+}
+.bpm-entry,
+.range-input {
+  width: 90px;
+  background: #2a2a38;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.range-input {
+  width: 58px;
+  padding: 3px 4px;
+  font-size: 12px;
+}
+.beat-settings {
+  margin-top: 10px;
+}
+.beat-settings summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.beat-settings .label {
+  min-width: 92px;
+}

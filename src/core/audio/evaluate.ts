@@ -55,6 +55,8 @@ export interface OfflineAnalysis {
   /** Band envelope values per frame (frames x bands). */
   bandFrames: Float32Array[]
   frameTimes: number[]
+  /** Onset-strength signal per frame (spectral flux per onset range). */
+  flux: Record<OnsetBand, Float32Array>
   maxPeak: number
 }
 
@@ -66,10 +68,13 @@ export function analyzeOffline(
   blockSize = 128,
 ): OfflineAnalysis {
   const analyzer = new AudioAnalyzer(sampleRate, settings)
+  const low: number[] = []
+  const high: number[] = []
   const result: OfflineAnalysis = {
     onsets: { low: [], high: [] },
     bandFrames: [],
     frameTimes: [],
+    flux: { low: new Float32Array(0), high: new Float32Array(0) },
     maxPeak: 0,
   }
   for (let start = 0; start < samples.length; start += blockSize) {
@@ -78,7 +83,10 @@ export function analyzeOffline(
       result.bandFrames.push(Float32Array.from(f.bands))
       result.frameTimes.push(f.time)
       result.maxPeak = Math.max(result.maxPeak, f.peak)
+      low.push(f.flux.low)
+      high.push(f.flux.high)
     })
   }
+  result.flux = { low: Float32Array.from(low), high: Float32Array.from(high) }
   return result
 }

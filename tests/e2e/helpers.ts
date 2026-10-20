@@ -25,6 +25,7 @@ export interface OutputTestState {
     rms: number
     latencyMs: number
   }
+  beat: import('../../src/shared/beat').BeatState
   current: {
     id: string
     kind: 'video' | 'image'

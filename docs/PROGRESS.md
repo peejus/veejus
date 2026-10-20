@@ -245,7 +245,7 @@ Then drag `fixtures/media` (or any folder of clips) onto the Library panel.
 
 ---
 
-## Phase 2: Audio input and analysis (completed 2026-10-19, awaiting approval)
+## Phase 2: Audio input and analysis (completed and approved 2026-10-19)
 
 ### What was built
 
@@ -373,3 +373,158 @@ In **Audio input**, pick **Test beat**, your mixer input, or **System audio**.
 1. Do you mostly feed Veejus from a mixer or interface input, or from system audio (DJ software on the same laptop)? That affects which latency defaults to pick in Phase 3.
 2. Should audio settings (source, gain, sensitivities) persist between launches now, rather than waiting for Phase 8? Re-picking the input at every gig is a likely annoyance.
 3. Can you try a few real tracks you'd actually play, through the panel or `npm run analyze`, and tell me how the kick lamp behaves? That's the best way to tune the detector before Phase 3 builds tempo tracking on it.
+
+**Approval notes (2026-10-19):** Phase 3 was started without answers to these questions, so the defaults stand:
+
+- No preferred input type is assumed; the latency offset defaults to 0 ms.
+- Audio settings are not saved yet (Phase 8).
+- Detector tuning stays until real-track feedback.
+
+---
+
+## Phase 3: Beat clock (completed 2026-10-19, awaiting approval)
+
+### What was built
+
+All of the beat logic is pure TypeScript in `src/core/beat/`. It runs in the output window, next to the renderer, fed by the audio worklet. A simulator runs it identically offline in fake time for tests and the harness.
+
+**Tempo detection: `TempoEstimator`**
+
+- **Method:** autocorrelates the onset-strength signal (kick plus snare/hat spectral flux, one value per 5.3 ms hop) over the last 8 s, every 0.5 s. Each candidate tempo in the configured range (default 70–180 BPM) is scored by the autocorrelation at 1–4 multiples of its beat period, then refined to a fraction of a BPM.
+- **Octave errors** (87 vs 174) resolve toward the faster tempo when it is at least 70% as well supported. Results always fold into the range.
+- **Confidence** (0–1) separates music (0.9–1.0) from noise (under 0.3). Estimates below 0.4 are ignored, so a beatless passage can't change the tempo.
+
+**Phase tracking: `BeatTracker`**
+
+- **PLL:** a phase-locked loop on kick onsets. Kicks within ±15% of a predicted beat pull the grid 20% of the way toward them. Snare/hat onsets take over only when there have been no kicks for 2 s (click tracks, kickless music).
+- **Off-beat filter:** off-grid onsets weaker than half a typical on-beat hit are ignored, so off-beat bass in a breakdown can't drag the grid off the beat. The memory of hit strength decays only very slowly and resets on a real tempo change.
+- **Re-acquisition:** if most recent onsets miss the grid and agree on a different phase (a hard cut to an unsynced track), the grid re-acquires that phase.
+- **Precise period:** once in phase, a least-squares fit through the actual on-beat kick times gives the period. It is far more precise than autocorrelation: 128 BPM measured as 128.00 instead of 127.86. This is what lets the clock freewheel through long breakdowns without drifting.
+
+**Tempo smoothing: `BeatEngine`**
+
+- Small changes are smoothed.
+- A different tempo must be seen 3 times in a row before it's adopted.
+- A precise measured tempo is kept until a real change is confirmed.
+
+**The master clock: `BeatClock`**
+
+- It runs in `performance.now()` time on the visual timeline: latency offset ahead of the audio.
+- **No jumps:** its beat position only moves forward. On tempo or phase changes it runs at most ±50% fast or slow and converges within about a beat. Only tap and resync snap it, by at most half a beat, and a beat is never emitted twice.
+- **Exposes:** `bpm`, `beatIndex`, `beatPhase`, `beatInBar` (1–4), `barIndex`, `barInPhrase`, `phraseIndex` (phrase length 4/8/16/32 bars), plus a beat event (with exact time) for every beat.
+- **`ClockSync`** maps the audio stream's time to `performance.now()` from message arrival times, using the minimum offset with drift creep, and re-locks after pauses.
+
+**Manual control**
+
+- **Tap tempo:** a least-squares fit over up to 16 taps; a 2 s pause starts a new sequence. Taps lock the tempo and put the beat on your taps.
+- **Typed BPM** (40–300), **×2 / ÷2**, **Lock tempo / Unlock (Auto)**.
+- **Nudge** ±10 ms.
+- **Resync 1:** now is beat 1 of the bar, aligned to the nearest beat.
+- **Phase correction** on/off, **latency offset** −250 to +250 ms, **phrase length**, and **tempo range** (at least one octave wide).
+
+**Keyboard** (anywhere in the control window, except while typing in a field)
+
+- **Space:** tap
+- **Enter:** resync downbeat
+- **← / →:** nudge
+
+**Tempo panel** (top of the sidebar)
+
+- A big BPM readout, AUTO/LOCKED badge, detected tempo and a confidence bar.
+- Four beat lights (beat 1 pink), Bar · Phrase (bar x/N), and in phase / searching.
+- The buttons above, a BPM entry box, and the clock settings.
+
+**Output debug overlay**
+
+- A 4-light metronome in the top-right corner, for checking the grid against what you hear.
+- Lines for BPM, mode, confidence, bar/beat/phrase and phase state.
+
+**Harness:** `npm run analyze -- <file>` now also runs full beat tracking. It prints the tempo at 4/8/15/30/60 s and whether it ended in phase.
+
+### Accuracy (offline, full pipeline in simulated time)
+
+The pipeline runs synthesized audio through the analyzer, delivers messages with ±3 ms jitter, and updates the clock at 60 fps. Beats are scored against the true beat grid.
+
+| Case                                                   | Tempo                                                      | Beats after 8 s (±15 ms)            |
+| ------------------------------------------------------ | ---------------------------------------------------------- | ----------------------------------- |
+| Click tracks 90 / 120 / 128 / 140 / 174                | within ±0.15 BPM by 4 s                                    | 100%, worst 0.9–4.7 ms              |
+| House 124, techno 132, drum & bass 174 (offbeat kicks) | correct by 4 s, no octave errors                           | 100%                                |
+| 3 minutes of house                                     | 124.00 steady                                              | 100%, worst 9 ms                    |
+| 8-bar and 32-bar breakdowns with offbeat bass          | held                                                       | ≥98%; no drift at 128 BPM over 62 s |
+| Tempo change 120 → 128                                 | re-locked in about 6 s (test: <10 s)                       | ≥95% after the change               |
+| Tap tempo                                              | exact after 4 steady taps; ±0.5 with ±10 ms jitter over 12 | —                                   |
+
+Live (Electron, test beat): 120.01 and 127.86 → refined to 128.0. In phase by about 8 s. Beat spacing is steady to ±0.5 ms.
+
+### How to run
+
+```bash
+npm run dev
+```
+
+In **Audio input**, pick **Test beat**, your mixer input or **System audio**. The **Tempo** panel shows the BPM within a few seconds.
+
+### Test results
+
+- `npm run typecheck` and `npm run lint`: clean.
+- `npm run test:unit`: **124 passing**. The 40 new tests:
+  - tempo estimator accuracy (5 click tempos), range folding, noise confidence
+  - end-to-end tracking: 8 styles and tempos, a 3-minute run, two breakdowns, tempo precision, the 128 BPM breakdown drift, a tempo change, monotonic beats, phase correction on/off
+  - tap tempo, clock sync, the clock's tempo and phase convergence, snapping, downbeat, latency offset
+  - tracker acquisition, weak-offbeat rejection and re-acquisition
+  - every engine command and the guards
+- `npm run test:e2e`: **46 passing**. The 11 new tests:
+  - the test beat detected at 120 ±0.5 and in phase within 10 s
+  - beat events 500 ±10 ms apart, cycling 1-2-3-4
+  - 128 BPM detected
+  - Space-key tap at 600 ms giving ~100 BPM, locked
+  - typed BPM, ×2, ÷2
+  - shortcuts ignored while typing
+  - unlocking back to auto
+  - Enter resync making now beat 1
+  - latency offset, phrase length and phase correction
+  - the clock freewheeling at the last tempo with audio off
+  - 60 fps with tracking running
+
+### Manual test script
+
+1. Run `npm run dev`. In **Audio input** choose **Test beat**. **Expected:** within about 5 s the Tempo panel reads **120.0**, AUTO, with "detected 120.0" and a full confidence bar. Within about 10 s it says **in phase**, and the four beat lights step along with beat 1 in pink.
+2. Make the output window visible. **Expected:** the metronome in its top-right corner steps in time with the panel's lights.
+3. **Real music** (the acceptance test):
+   1. Pick your mixer input (or **System audio**) and play a steady four-on-the-floor track.
+   2. **Expected:** the BPM settles on the track's tempo, or exactly half or double it; ×2 / ÷2 fix that.
+   3. Watch the beat lights and metronome against the kick you hear for **at least 2 minutes**. **Expected:** they stay locked, through breakdowns too.
+   4. If the lights consistently flash slightly after the kick, raise **Latency offset** in Clock settings until they line up. Note the value: it's your setup's latency.
+4. Press **Enter** (or **Resync 1**) exactly on a bar's first beat. **Expected:** the pink light now marks the real "one", and the bar counter steps on bar lines.
+5. Tap **Space** 4–8 times along with the music. **Expected:** LOCKED, the BPM matches your taps, and the lights follow your taps. Click **Unlock (Auto)** to return to detection.
+6. Type a BPM and press Enter. Try **×2**, **÷2**, and **◀ / ▶** (or the arrow keys). **Expected:** each acts immediately, and the lights never stutter or double-flash.
+7. Turn audio **Off**. **Expected:** the lights keep going at the last tempo (freewheel).
+8. Try the harness on real tracks:
+
+   ```bash
+   npm run analyze -- "C:\path\to\track.mp3"
+   ```
+
+   **Expected:** the "Tempo" line shows the track's BPM by 8 s, ending "in phase".
+
+### Decisions and defaults (flag any you want changed)
+
+- **The beat grid follows kicks.** That suits house, techno, drum & bass and most dance music. Snares and hats steer it only when there are no kicks.
+- **Downbeat (beat 1) is not detected automatically.** The first locked beat becomes beat 1 until you press Resync. Automatic downbeat detection is a Phase 9 backlog item.
+- **Tap tempo locks the tempo.** The tapped tempo holds until **Unlock (Auto)**. Phase correction still follows the kicks if enabled.
+- **Freewheel:** with audio off, in a breakdown, or when the detector isn't confident, the clock keeps the last tempo and phase.
+- **Shortcuts:** Space, Enter and ←/→ avoid the letter and number keys Phase 4 will use for pads. They're captured before buttons, so they don't activate a focused button.
+- **Clock settings (latency offset, phrase length, range) are not saved yet** (Phase 8).
+
+### Known issues / limitations
+
+- **Tuned on synthesized music.** Real tracks with swing, live drums or heavy sidechain may lock more slowly or need ×2/÷2. Please report tracks that misbehave; `npm run analyze` output is the most useful thing to send.
+- **Sudden tempo changes take about 6 s to adopt.** Gradual DJ pitch changes are followed continuously.
+- **Half/double-time ambiguity is inherent.** Hip-hop at 90 BPM with busy hats may read 180; ×2/÷2 persist for the track.
+- **The latency offset must be set by ear.** There's no automatic input-latency measurement.
+
+### Open questions for you
+
+1. Run the real-music test (step 3). Does it stay locked for 2+ minutes on your tracks, and what latency offset looks right on your setup?
+2. Should Phase 4's quantized triggers use the latency-shifted visual timeline (recommended: clips land on the beat you hear), or the raw audio grid?
+3. Any preference for default tap/resync keys before Phase 4 assigns the pad keys?
