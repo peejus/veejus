@@ -1,6 +1,9 @@
 import { FrameTimeline, normalizeFrameDurations } from '@core/frameTiming'
 import type { ClipInfo } from '@shared/protocol'
 
+/** A still image "plays" for this long (one-shot pads, tempo sync). */
+export const STILL_DURATION_MS = 2000
+
 /** ImageDecoder may not know image/apng; APNG is just PNG to it. */
 function decoderType(mime: string): string {
   return mime === 'image/apng' ? 'image/png' : mime
@@ -52,7 +55,9 @@ export class ImageClip {
       return new ImageClip(
         info,
         frames,
-        new FrameTimeline(normalizeFrameDurations(durations)),
+        new FrameTimeline(
+          frames.length === 1 ? [STILL_DURATION_MS] : normalizeFrameDurations(durations),
+        ),
         first.width,
         first.height,
       )

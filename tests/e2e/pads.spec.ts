@@ -91,7 +91,9 @@ test('bar quantize: a key press fires on the next bar, within one frame', async 
   const start = await nextAction(before, (a) => a.type === 'start' && a.padId === 'A3')
   const { beatsPerMs } = (await readOutput(h.output)).trigger
   expect(Math.abs((start.posAtFire - start.startPos!) / beatsPerMs)).toBeLessThanOrEqual(FRAME)
-  expect(start.startPos! % 4).toBe(0)
+  // On a bar line, or (if the press landed just after one) inside the 80 ms grace window.
+  const pastBar = start.startPos! % 4
+  expect(pastBar === 0 || pastBar / beatsPerMs <= 80 + FRAME).toBe(true)
   await expect(gridPad('A3')).toHaveAttribute('data-state', 'playing')
 })
 

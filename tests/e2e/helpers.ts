@@ -41,6 +41,17 @@ export interface OutputTestState {
     opacity: number
     speedOverride: number | null
   }
+  layers: Record<
+    'background' | 'overlayA' | 'overlayB' | 'takeover',
+    {
+      clipId: string | null
+      owner: string | null
+      paused: boolean
+      transform: { cx: number; cy: number; w: number; h: number; rotation: number } | null
+      opacity: number
+    }
+  >
+  takeoverActive: boolean
   current: {
     id: string
     kind: 'video' | 'image'
@@ -116,4 +127,15 @@ export const pad = (control: Page, name: string) => control.locator(`[data-clip-
 export function near(a: number[] | null, b: readonly number[], tol = 6): boolean {
   if (!a) return false
   return b.every((v, i) => Math.abs(a[i]! - v) <= tol)
+}
+
+/** Send a message to the output as the control window would. */
+export function sendToOutput(control: Page, msg: unknown) {
+  return control.evaluate(
+    (m) =>
+      (globalThis as unknown as { veejus: { sendToOutput(m: unknown): void } }).veejus.sendToOutput(
+        m,
+      ),
+    msg,
+  )
 }

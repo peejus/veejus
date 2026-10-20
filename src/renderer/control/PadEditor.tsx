@@ -5,6 +5,7 @@ import {
   PLAY_MODE_LABELS,
   QUANTIZE_LABELS,
   QUANTIZES,
+  autoLayer,
   padId,
   type PadConfig,
   type PadSource,
@@ -12,8 +13,268 @@ import {
   type Quantize,
   type RetriggerUnit,
 } from '@shared/pads'
-import type { ClipInfo } from '@shared/protocol'
+import {
+  ANCHORS,
+  ANCHOR_LABELS,
+  ENTRANCES,
+  ENTRANCE_LABELS,
+  KEY_BLUE,
+  KEY_GREEN,
+  LAYER_IDS,
+  LAYER_NAMES,
+  type Anchor,
+  type Entrance,
+  type KeySettings,
+  type LayerId,
+  type Placement,
+} from '@shared/layers'
+import { FIT_MODES, type ClipInfo, type FitMode } from '@shared/protocol'
+import { hexToRgb, rgbToHex } from '@shared/color'
 import type { PadsLink } from './usePads'
+
+/** Key presets shown in one menu; 'custom' uses the color picker. */
+type KeyChoice = 'none' | 'green' | 'blue' | 'custom' | 'luma'
+
+function keyChoice(k: KeySettings): KeyChoice {
+  if (k.mode === 'none') return 'none'
+  if (k.mode === 'luma') return 'luma'
+  if (rgbToHex(k.color) === rgbToHex(KEY_GREEN)) return 'green'
+  if (rgbToHex(k.color) === rgbToHex(KEY_BLUE)) return 'blue'
+  return 'custom'
+}
+
+function Range(props: {
+  label: string
+  min: number
+  max: number
+  step: number
+  value: number
+  format: (v: number) => string
+  onChange: (v: number) => void
+}) {
+  return (
+    <label className="field">
+      <span className="label">{props.label}</span>
+      <input
+        type="range"
+        aria-label={props.label}
+        min={props.min}
+        max={props.max}
+        step={props.step}
+        value={props.value}
+        onChange={(e) => props.onChange(Number(e.target.value))}
+      />
+      <code className="slider-value">{props.format(props.value)}</code>
+    </label>
+  )
+}
+
+const pct = (v: number) => `${Math.round(v * 100)}%`
+
+function PlacementEditor({ p, set }: { p: Placement; set: (patch: Partial<Placement>) => void }) {
+  return (
+    <details className="sub-section" open>
+      <summary>Placement</summary>
+      <label className="field">
+        <span className="label">Position</span>
+        <select
+          aria-label="Position"
+          value={p.anchor}
+          onChange={(e) => set({ anchor: e.target.value as Anchor })}
+        >
+          {ANCHORS.map((a) => (
+            <option key={a} value={a}>
+              {ANCHOR_LABELS[a]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {p.anchor === 'full' ? (
+        <label className="field">
+          <span className="label">Fit</span>
+          <select
+            aria-label="Placement fit"
+            value={p.fit}
+            onChange={(e) => set({ fit: e.target.value as FitMode })}
+          >
+            {FIT_MODES.map((f) => (
+              <option key={f} value={f}>
+                {f[0]!.toUpperCase() + f.slice(1)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <Range
+          label="Size"
+          min={0.05}
+          max={1}
+          step={0.01}
+          value={p.size}
+          format={pct}
+          onChange={(v) => set({ size: v })}
+        />
+      )}
+      <Range
+        label="Offset X"
+        min={-0.5}
+        max={0.5}
+        step={0.01}
+        value={p.offsetX}
+        format={pct}
+        onChange={(v) => set({ offsetX: v })}
+      />
+      <Range
+        label="Offset Y"
+        min={-0.5}
+        max={0.5}
+        step={0.01}
+        value={p.offsetY}
+        format={pct}
+        onChange={(v) => set({ offsetY: v })}
+      />
+      <Range
+        label="Rotation"
+        min={-180}
+        max={180}
+        step={1}
+        value={p.rotationDeg}
+        format={(v) => `${v}°`}
+        onChange={(v) => set({ rotationDeg: v })}
+      />
+      <label className="field">
+        <span className="label">Entrance</span>
+        <select
+          aria-label="Entrance"
+          value={p.entrance}
+          onChange={(e) => set({ entrance: e.target.value as Entrance })}
+        >
+          {ENTRANCES.map((en) => (
+            <option key={en} value={en}>
+              {ENTRANCE_LABELS[en]}
+            </option>
+          ))}
+        </select>
+        {p.entrance !== 'none' && (
+          <select
+            aria-label="Entrance length"
+            value={p.entranceBeats}
+            onChange={(e) => set({ entranceBeats: Number(e.target.value) })}
+          >
+            {[0.25, 0.5, 1, 2, 4].map((b) => (
+              <option key={b} value={b}>
+                {b} beat{b === 1 ? '' : 's'}
+              </option>
+            ))}
+          </select>
+        )}
+      </label>
+    </details>
+  )
+}
+
+function KeyEditor({ k, set }: { k: KeySettings; set: (patch: Partial<KeySettings>) => void }) {
+  const choice = keyChoice(k)
+  return (
+    <details className="sub-section" open={k.mode !== 'none'}>
+      <summary>Keying</summary>
+      <label className="field">
+        <span className="label">Remove</span>
+        <select
+          aria-label="Key"
+          value={choice}
+          onChange={(e) => {
+            const v = e.target.value as KeyChoice
+            if (v === 'none') set({ mode: 'none' })
+            else if (v === 'luma') set({ mode: 'luma' })
+            else if (v === 'green') set({ mode: 'chroma', color: KEY_GREEN })
+            else if (v === 'blue') set({ mode: 'chroma', color: KEY_BLUE })
+            else set({ mode: 'chroma' })
+          }}
+        >
+          <option value="none">Nothing</option>
+          <option value="green">Green screen</option>
+          <option value="blue">Blue screen</option>
+          <option value="custom">Custom color</option>
+          <option value="luma">Dark areas (luma key)</option>
+        </select>
+        {choice === 'custom' && (
+          <input
+            type="color"
+            aria-label="Key color"
+            value={rgbToHex(k.color)}
+            onChange={(e) => {
+              const rgb = hexToRgb(e.target.value)
+              if (rgb) set({ color: rgb })
+            }}
+          />
+        )}
+      </label>
+      {k.mode === 'chroma' && (
+        <>
+          <Range
+            label="Similarity"
+            min={0}
+            max={1}
+            step={0.01}
+            value={k.similarity}
+            format={pct}
+            onChange={(v) => set({ similarity: v })}
+          />
+          <Range
+            label="Smoothness"
+            min={0}
+            max={1}
+            step={0.01}
+            value={k.smoothness}
+            format={pct}
+            onChange={(v) => set({ smoothness: v })}
+          />
+          <Range
+            label="Spill"
+            min={0}
+            max={1}
+            step={0.01}
+            value={k.spill}
+            format={pct}
+            onChange={(v) => set({ spill: v })}
+          />
+        </>
+      )}
+      {k.mode === 'luma' && (
+        <>
+          <Range
+            label="Threshold"
+            min={0}
+            max={1}
+            step={0.01}
+            value={k.threshold}
+            format={pct}
+            onChange={(v) => set({ threshold: v })}
+          />
+          <Range
+            label="Softness"
+            min={0}
+            max={1}
+            step={0.01}
+            value={k.softness}
+            format={pct}
+            onChange={(v) => set({ softness: v })}
+          />
+          <label className="field check">
+            <input
+              type="checkbox"
+              aria-label="Invert luma key"
+              checked={k.invert}
+              onChange={(e) => set({ invert: e.target.checked })}
+            />
+            Remove bright areas instead
+          </label>
+        </>
+      )}
+    </details>
+  )
+}
 
 const BEAT_CHOICES = [0.5, 1, 2, 4, 8, 16, 32]
 const FADE_CHOICES = [0, 0.25, 0.5, 1, 2, 4]
@@ -192,6 +453,30 @@ export function PadEditor({ pads, clips }: { pads: PadsLink; clips: ClipInfo[] }
           ))}
         </select>
       </label>
+
+      <label className="field">
+        <span className="label">Layer</span>
+        <select
+          aria-label="Pad layer"
+          value={config.layer}
+          onChange={(e) => set({ layer: e.target.value as LayerId | 'auto' })}
+        >
+          <option value="auto">
+            Auto ({LAYER_NAMES[autoLayer(config.mode, false)]}; drops: Takeover)
+          </option>
+          {LAYER_IDS.map((id) => (
+            <option key={id} value={id}>
+              {LAYER_NAMES[id]}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <PlacementEditor
+        p={config.placement}
+        set={(patch) => set({ placement: { ...config.placement, ...patch } })}
+      />
+      <KeyEditor k={config.key} set={(patch) => set({ key: { ...config.key, ...patch } })} />
 
       <div className="row editor-actions">
         <button onClick={() => pads.press(sel)} disabled={!config.source}>

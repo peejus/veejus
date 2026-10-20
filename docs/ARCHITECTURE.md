@@ -108,17 +108,37 @@
   - **Owner:** tags its clip with the owning pad, so a natural one-shot end (`finished`) clears the pad, while a replacement or stop doesn't.
   - **Per frame:** takes opacity (fades) and a speed override (tempo sync = clip length ÷ N beats).
 
+## Layers and compositing
+
+```
+ frame:  beat.update ─▶ scheduler.update (voices per layer) ─▶ ClipLayer.play/restart/stop per layer
+         takeover active? ─▶ pause / dim / hide lower layers
+         Stage.beginFrame(bg) ─▶ for Background, Overlay A, Overlay B, Takeover:
+             ClipLayer.render ─▶ placeClip(placement, entrance progress, random spot) ─▶ Stage.drawLayer
+                 (copy composite ─▶ layer shader: unpremultiply, key, opacity, blend vs copy)
+         Stage.endFrame(master brightness / blackout) ─▶ screen
+         Stage.requestPreview / takePreview (PBO + fence, async) ─▶ 'previewFrame' to control
+```
+
+- **Layer state:** `src/shared/layers.ts` holds the layer ids and config (opacity, blend, mute, solo), takeover mode, master, `Placement` and `KeySettings`.
+- **Ownership:** the control owns the layer mix (`useLayers`) and sends the whole `LayersConfig` on change. Pads carry a resolved `layer`, `placement` and `key` in their `PadSpec` (`autoLayer` picks by mode, and Takeover for drops).
+- **`placeClip`** (`src/core/placement.ts`) is pure. It turns a placement plus entrance progress (beats since the pad started ÷ entrance beats) into a center/size/rotation transform.
+- **`Stage`:**
+  - **Targets:** owns two accumulation render targets (composite + copy) at canvas size, plus a small preview target and a pixel-pack buffer.
+  - **Blending:** all blending happens in `LAYER_FS` against the copy, so blend modes don't depend on fixed-function GL blending.
+  - **Textures:** clip textures are premultiplied (video via the upload flag, images via premultiplied ImageBitmaps).
+
 ## Messages (`src/shared/protocol.ts`)
 
-| Channel                 | Direction               | Payload                                                                                                                                                                                                                             |
-| ----------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `veejus:to-output`      | control → main → output | `ControlToOutput`: `setBackground`, `ping`, `setDebugOverlay`, `playClip`, `stopClip`, `setLayerSettings`, `requestStatus`                                                                                                          |
-| `veejus:to-control`     | output → main → control | `OutputToControl`: `outputReady`, `pong`, `frameStats`, `backgroundApplied`, `clipState`, `clipStarted`, `clipEnded`, `mediaStats`, `audioStatus`, `audioDevices`, `audioMeters`, `audioOnset`, `beatState`, `beat`, `triggerState` |
-| `veejus:main-request`   | control → main (invoke) | `MainRequest` → `MainResponse` (displays, fullscreen, library import/remove)                                                                                                                                                        |
-| `veejus:output-state`   | main → control          | `OutputWindowState` (display, fullscreen, visible)                                                                                                                                                                                  |
-| `veejus:output-command` | output → main           | `OutputCommand`: `exitFullscreen`, `toggleFullscreen`                                                                                                                                                                               |
-| `veejus:library`        | main → control, output  | `ClipInfo[]`, the whole library, after every change                                                                                                                                                                                 |
-| `veejus:get-library`    | output → main (invoke)  | current `ClipInfo[]`                                                                                                                                                                                                                |
+| Channel                 | Direction               | Payload                                                                                                                                                                                                                                                           |
+| ----------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `veejus:to-output`      | control → main → output | `ControlToOutput`: `setBackground`, `ping`, `setDebugOverlay`, `playClip`, `stopClip`, `setLayerSettings`, `requestStatus`                                                                                                                                        |
+| `veejus:to-control`     | output → main → control | `OutputToControl`: `outputReady`, `pong`, `frameStats`, `backgroundApplied`, `clipState`, `clipStarted`, `clipEnded`, `mediaStats`, `audioStatus`, `audioDevices`, `audioMeters`, `audioOnset`, `beatState`, `beat`, `triggerState`, `layerState`, `previewFrame` |
+| `veejus:main-request`   | control → main (invoke) | `MainRequest` → `MainResponse` (displays, fullscreen, library import/remove)                                                                                                                                                                                      |
+| `veejus:output-state`   | main → control          | `OutputWindowState` (display, fullscreen, visible)                                                                                                                                                                                                                |
+| `veejus:output-command` | output → main           | `OutputCommand`: `exitFullscreen`, `toggleFullscreen`                                                                                                                                                                                                             |
+| `veejus:library`        | main → control, output  | `ClipInfo[]`, the whole library, after every change                                                                                                                                                                                                               |
+| `veejus:get-library`    | output → main (invoke)  | current `ClipInfo[]`                                                                                                                                                                                                                                              |
 
 Main checks the sender of every message and runs the matching `is…` guard before acting on or forwarding it.
 
@@ -128,30 +148,31 @@ Main checks the sender of every message and runs the matching `is…` guard befo
 src/
   main/         Electron main process: windows, IPC, library, media protocol
   preload/      contextBridge APIs, one per window
-  shared/       protocol types + guards; audio, beat and pad types + guards; media types, HTTP range, colors
+  shared/       protocol types + guards; audio, beat, pad and layer types + guards; media types,
+                HTTP range, colors
   core/         pure TypeScript engine modules (no DOM/Electron); unit-tested
-                FrameStats, FrameTimeline, LruBudget, fitRect.
+                FrameStats, FrameTimeline, LruBudget, fitRect, placeClip.
                 audio/: RealFft, EnvelopeFollower, OnsetDetector, AudioAnalyzer,
                         synth (test patterns), wav, evaluate (scoring + offline runs)
                 beat/:  TempoEstimator, BeatTracker, TapTempo, ClockSync, BeatClock,
                         BeatEngine, simulate (offline pipeline)
                 trigger/: TriggerScheduler, pickRandom
   renderer/
-    control/    React control UI: PadGrid, PadEditor, BeatPanel, LibraryPanel, PlaybackPanel,
-                AudioPanel, probe queue, hooks (usePads + pad keys, useBeat + tempo keys,
-                useAudio, useLibrary, useOutputLink)
-    output/     Stage (WebGL2), ClipLayer, media/ (MediaManager, VideoClip, ImageClip),
+    control/    React control UI: PreviewMonitor, LayersPanel, PadGrid, PadEditor, BeatPanel,
+                LibraryPanel, PlaybackPanel, AudioPanel, probe queue, hooks (useLayers + blackout key,
+                usePads + pad keys, useBeat + tempo keys, useAudio, useLibrary, useOutputLink)
+    output/     Stage (WebGL2 compositor), ClipLayer x4, media/ (MediaManager, VideoClip, ImageClip),
                 audio/ (AudioEngine, analysis.worklet), metronome
 tests/
   unit/         Vitest, for core/, shared/ and main/library
   e2e/          Playwright driving the built Electron app (smoke, library, stress)
 scripts/        make-fixtures.mjs (ffmpeg test media), make-audio-fixtures.ts,
                 analyze-audio.ts (offline analysis harness), ffmpeg.ts
-fixtures/       media/ (committed), stress/ and audio/ (generated, gitignored)
+fixtures/       media/ and keying/ (committed); stress/, perf/ and audio/ (generated, gitignored)
 ```
 
 ## Seams for later phases
 
 - `ClipLayer` becomes one of several layers in a compositor (Phase 5). `Stage.drawTexture` already takes a rect and an opacity.
-- Phase 5 turns the single `ClipLayer` into several layers. Pads gain a target layer, and the scheduler keeps one voice per layer instead of one overall.
+- Phase 6 adds a per-layer effect chain (shader passes after the layer shader) and a modulation system that drives layer/effect/placement parameters from audio bands, onsets and beat-synced LFOs.
 - `ImageClip` timing (`FrameTimeline`) is speed-scaled elapsed time. Phase 4 can drive the elapsed time from beats to tempo-sync GIFs.

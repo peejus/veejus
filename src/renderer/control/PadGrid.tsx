@@ -12,13 +12,22 @@ import {
   type PadConfig,
   type PadRunState,
   type Quantize,
+  autoLayer,
 } from '@shared/pads'
+import type { LayerId } from '@shared/layers'
 import type { ClipInfo } from '@shared/protocol'
 import type { ProbeResult } from './probe'
 import type { BeatLink } from './useBeat'
 import type { PadRef, PadsLink } from './usePads'
 
 export const CLIP_DRAG_TYPE = 'application/x-veejus-clip'
+
+const LAYER_SHORT: Record<LayerId, string> = {
+  background: 'BG',
+  overlayA: 'A',
+  overlayB: 'B',
+  takeover: 'TK',
+}
 
 const MODE_SHORT: Record<PadConfig['mode'], string> = {
   oneShot: '1×',
@@ -100,7 +109,12 @@ const PadCell = memo(function PadCell(props: CellProps) {
     >
       {thumb && <img src={thumb} alt="" draggable={false} />}
       <span className="pad-key">{keyLabel}</span>
-      {!empty && <span className="pad-mode">{MODE_SHORT[config.mode]}</span>}
+      {!empty && (
+        <span className="pad-mode">
+          {MODE_SHORT[config.mode]}·
+          {LAYER_SHORT[config.layer === 'auto' ? autoLayer(config.mode, false) : config.layer]}
+        </span>
+      )}
       <span className="pad-label">{label}</span>
     </div>
   )

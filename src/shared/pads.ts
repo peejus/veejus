@@ -1,5 +1,16 @@
 /** Pads, triggering and drop types shared by the control (UI), output (scheduler) and tests. */
 
+import {
+  DEFAULT_KEY,
+  DEFAULT_PLACEMENT,
+  isKeySettings,
+  isLayerId,
+  isPlacement,
+  type KeySettings,
+  type LayerId,
+  type Placement,
+} from './layers'
+
 export const BANK_COUNT = 4
 export const PAD_ROWS = 4
 export const PAD_COLS = 8
@@ -60,6 +71,10 @@ export interface PadConfig {
   fadeOutBeats: number
   /** Stretch the clip so one pass lasts this many beats; null plays at normal speed. */
   syncBeats: number | null
+  /** 'auto' picks by play mode (and Takeover for drops); see `autoLayer`. */
+  layer: LayerId | 'auto'
+  placement: Placement
+  key: KeySettings
 }
 
 export const DEFAULT_PAD_CONFIG: Omit<PadConfig, 'source'> = {
@@ -70,6 +85,25 @@ export const DEFAULT_PAD_CONFIG: Omit<PadConfig, 'source'> = {
   fadeInBeats: 0,
   fadeOutBeats: 0,
   syncBeats: null,
+  layer: 'auto',
+  placement: DEFAULT_PLACEMENT,
+  key: DEFAULT_KEY,
+}
+
+/**
+ * Default layer for a pad: loops sit in the background, quick hits go on the overlays, and
+ * anything fired by a drop takes over the screen.
+ */
+export function autoLayer(mode: PlayMode, forDrop: boolean): LayerId {
+  if (forDrop) return 'takeover'
+  switch (mode) {
+    case 'toggle':
+      return 'background'
+    case 'beats':
+      return 'overlayB'
+    default:
+      return 'overlayA'
+  }
 }
 
 /** Everything the output needs to play a pad (global settings already resolved). */
@@ -82,6 +116,9 @@ export interface PadSpec {
   fadeInBeats: number
   fadeOutBeats: number
   syncBeats: number | null
+  layer: LayerId
+  placement: Placement
+  key: KeySettings
 }
 
 /** When armed pads fire. */
@@ -104,6 +141,8 @@ export interface PadRuntime {
   state: PadRunState
   /** Clip showing (or about to), once chosen. */
   clipId: string | null
+  /** Layer the pad plays (or will play) on. */
+  layer: LayerId | null
 }
 
 export interface DropStatus {
@@ -149,7 +188,10 @@ export function isPadSpec(v: unknown): v is PadSpec {
     (v.retriggerEvery === 'beat' || v.retriggerEvery === 'bar') &&
     inRange(v.fadeInBeats, 0, 16) &&
     inRange(v.fadeOutBeats, 0, 16) &&
-    (v.syncBeats === null || inRange(v.syncBeats, 0.25, 256))
+    (v.syncBeats === null || inRange(v.syncBeats, 0.25, 256)) &&
+    isLayerId(v.layer) &&
+    isPlacement(v.placement) &&
+    isKeySettings(v.key)
   )
 }
 
@@ -170,6 +212,7 @@ export function isTriggerState(v: unknown): v is TriggerState {
   for (const p of Object.values(v.pads)) {
     if (!isObj(p) || !RUN_STATES.includes(p.state as PadRunState)) return false
     if (!(p.clipId === null || typeof p.clipId === 'string')) return false
+    if (!(p.layer === null || isLayerId(p.layer))) return false
   }
   const d = v.drop
   return (

@@ -4,7 +4,7 @@ A desktop VJ app for firing short, silly video clips and GIFs in sync with the m
 
 The build follows the phased plan in [VEEJUS_AGENT_PROMPT.md](VEEJUS_AGENT_PROMPT.md). Progress and per-phase test scripts are in [docs/PROGRESS.md](docs/PROGRESS.md); the module map is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-**Current status:** Phase 4 (beat-synced pad triggering, drop mode).
+**Current status:** Phase 5 (layers, compositing, placement and keying).
 
 ## Requirements
 
@@ -45,6 +45,7 @@ To start it from the desktop or taskbar, right-click `Start-Veejus.bat` → **Sh
 | `npm run format`            | Prettier                                                                                   |
 | `npm run fixtures`          | Regenerate the small committed test media in `fixtures/media`                              |
 | `npm run fixtures:stress`   | Generate 50 clips in `fixtures/stress` for the stress test                                 |
+| `npm run fixtures:perf`     | Generate 1080p clips in `fixtures/perf` for the 4-layer performance test                   |
 | `npm run fixtures:audio`    | Write synthetic drum patterns + ground truth to `fixtures/audio`                           |
 | `npm run analyze -- <file>` | Run onset detection and beat tracking over an audio file (WAV, or MP3/FLAC/... via ffmpeg) |
 
@@ -58,6 +59,12 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
   - **Edit:** right-click a pad to set its play mode (one-shot, for N beats, while held, toggle loop, retrigger), fades, tempo sync, or a random clip from a folder.
   - **Drop:** **Shift+key** arms a pad; the **DROP in N bars** banner counts down to the next phrase.
   - **Banks and stop:** **F1–F4** switch banks; **Esc** stops everything.
+- **Layers:**
+  - **The four layers:** Background, Overlay A, Overlay B and Takeover. Each has opacity, a blend mode (normal, add, screen, multiply, difference), mute (M), solo (S) and stop (■).
+  - **Where pads play:** a pad picks its layer itself (**Auto**: loops to Background, quick hits to the overlays, drops to Takeover), or you can choose one in the pad editor.
+  - **Placement and keying:** the pad editor also sets placement (full screen, center, corners, random spot; size, offset, rotation; pop or slide entrances in beats) and keying (green screen, blue screen, custom color, or luma).
+  - **Under a takeover:** the lower layers keep playing, dim, pause or hide.
+  - **Master:** brightness and **Blackout** (`` ` `` key). The **Output preview** at the top of the sidebar mirrors what the audience sees.
 - **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. Hover a clip for a live preview, click it to play it on the output immediately (unquantized preview). The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
 - **Clip layer:** loop or one-shot, speed (0.25×–4×), and fit (contain, cover, stretch, original size). Changes apply live. **Stop** clears the layer.
 - **Tempo:** the BPM is detected from the audio and the beat lights follow the kicks. **Space** taps tempo, **Enter** marks "now is beat 1", **← / →** nudge the grid 10 ms. You can also type a BPM, use ×2 / ÷2, or lock the tempo. **Clock settings** has phase correction, a latency offset (raise it if the visuals land after the kick you hear), phrase length and tempo range. The output's debug overlay shows a 4-light metronome.

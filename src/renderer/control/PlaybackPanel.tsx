@@ -20,7 +20,8 @@ export function PlaybackPanel({ settings, onChange, library, onStop }: Props) {
   const last = library.lastStart
   return (
     <section className="panel">
-      <h2>Clip layer</h2>
+      <h2>Library preview</h2>
+      <p className="hint">Clicking a library clip plays it now on the Background layer.</p>
       <div className="now-playing">
         <span className="label">Now playing</span>
         <span data-testid="now-playing">{playing ? playing.name : 'Nothing'}</span>

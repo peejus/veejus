@@ -6,6 +6,7 @@ import {
   PAD_KEY_CODES,
   PADS_PER_BANK,
   PAD_COLS,
+  autoLayer,
   padId,
   type PadConfig,
   type PadSource,
@@ -45,7 +46,11 @@ const emptyBanks = (): PadConfig[][] =>
     Array.from({ length: PADS_PER_BANK }, () => ({ ...DEFAULT_PAD_CONFIG, source: null })),
   )
 
-export function specFor(config: PadConfig, settings: TriggerSettings): PadSpec | null {
+export function specFor(
+  config: PadConfig,
+  settings: TriggerSettings,
+  forDrop = false,
+): PadSpec | null {
   if (!config.source) return null
   return {
     source: config.source,
@@ -56,6 +61,9 @@ export function specFor(config: PadConfig, settings: TriggerSettings): PadSpec |
     fadeInBeats: config.fadeInBeats,
     fadeOutBeats: config.fadeOutBeats,
     syncBeats: config.syncBeats,
+    layer: config.layer === 'auto' ? autoLayer(config.mode, forDrop) : config.layer,
+    placement: config.placement,
+    key: config.key,
   }
 }
 
@@ -119,7 +127,7 @@ export function usePads(): PadsLink {
 
   const send = useCallback((type: 'padPress' | 'padArm', pad: PadRef) => {
     const { banks: b, settings: s } = latest.current
-    const spec = specFor(b[pad.bank]![pad.index]!, s)
+    const spec = specFor(b[pad.bank]![pad.index]!, s, type === 'padArm')
     if (spec) bridge.sendToOutput({ type, padId: padId(pad.bank, pad.index), spec })
   }, [])
 

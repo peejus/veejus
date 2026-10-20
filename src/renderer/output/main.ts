@@ -1,12 +1,27 @@
 import { FrameStats } from '@core/frameStats'
-import { isControlToOutput, type OutputBridge, type Rgb } from '@shared/protocol'
+import {
+  isControlToOutput,
+  type ClipInfo,
+  type LayerSettings,
+  type LayerShowing,
+  type OutputBridge,
+  type Rgb,
+} from '@shared/protocol'
 import { rgbToHex } from '@shared/color'
 import { BAND_NAMES } from '@shared/audio'
+import {
+  DEFAULT_LAYERS_CONFIG,
+  DEFAULT_MASTER,
+  LAYER_IDS,
+  LAYER_NAMES,
+  type LayerId,
+  type LayersConfig,
+  type MasterSettings,
+} from '@shared/layers'
+import type { PadSource } from '@shared/pads'
 import { HOP_SIZE } from '@core/audio/analyzer'
 import { BeatEngine } from '@core/beat/beatEngine'
 import { TriggerScheduler, type TriggerAction } from '@core/trigger/scheduler'
-import type { ClipInfo } from '@shared/protocol'
-import type { PadSource } from '@shared/pads'
 import { AudioEngine } from './audio/audioEngine'
 import { Metronome } from './metronome'
 import { ClipLayer } from './clipLayer'
@@ -17,6 +32,9 @@ const bridge = (window as unknown as { veejus: OutputBridge }).veejus
 
 const OVERLAY_INTERVAL_MS = 250
 const STATS_INTERVAL_MS = 500
+const BEAT_STATE_INTERVAL_MS = 100
+const PREVIEW_INTERVAL_MS = 1000 / 15
+const PREVIEW_WIDTH = 320
 const MB = 1024 * 1024
 
 const stage = new Stage(document.getElementById('stage') as HTMLCanvasElement)
@@ -27,21 +45,98 @@ const media = new MediaManager((id, state, error) =>
   bridge.sendToControl({ type: 'clipState', id, state, ...(error ? { error } : {}) }),
 )
 
-const layer = new ClipLayer(
-  stage,
-  media,
-  {
-    onStarted: (id, waitFrames) => bridge.sendToControl({ type: 'clipStarted', id, waitFrames }),
-    onEnded: (id, owner, reason) => {
-      if (owner && reason === 'finished') scheduler.onClipEnded(owner)
-      bridge.sendToControl({ type: 'clipEnded', id })
-    },
-    onError: (id, error) => bridge.sendToControl({ type: 'clipState', id, state: 'error', error }),
-  },
-  { loop: true, speed: 1, fit: 'contain' },
-)
+// ---- layers -----------------------------------------------------------------
 
-const BEAT_STATE_INTERVAL_MS = 100
+const PREVIEW_LAYER: LayerId = 'background'
+const DEFAULT_LAYER_SETTINGS: LayerSettings = { loop: true, speed: 1, fit: 'contain' }
+
+const layers = Object.fromEntries(
+  LAYER_IDS.map((id) => [
+    id,
+    new ClipLayer(
+      stage,
+      media,
+      {
+        // The control's "now playing" and start latency follow the library-preview layer.
+        onStarted: (clipId, waitFrames) => {
+          if (id === PREVIEW_LAYER)
+            bridge.sendToControl({ type: 'clipStarted', id: clipId, waitFrames })
+        },
+        onEnded: (clipId, owner, reason) => {
+          if (owner && reason === 'finished') scheduler.onClipEnded(owner)
+          if (id === PREVIEW_LAYER) bridge.sendToControl({ type: 'clipEnded', id: clipId })
+        },
+        onError: (clipId, error) =>
+          bridge.sendToControl({ type: 'clipState', id: clipId, state: 'error', error }),
+      },
+      { ...DEFAULT_LAYER_SETTINGS },
+    ),
+  ]),
+) as Record<LayerId, ClipLayer>
+
+let layersConfig: LayersConfig = structuredClone(DEFAULT_LAYERS_CONFIG)
+let master: MasterSettings = { ...DEFAULT_MASTER }
+let previewEnabled = false
+let lastPreviewAt = 0
+let layerStateSent = ''
+
+/** Is anything visible on the takeover layer right now? */
+function takeoverActive(): boolean {
+  return !!layers.takeover.current?.started && !layersConfig.layers.takeover.muted
+}
+
+/** Final opacity for a layer this frame, or 0 if it shouldn't draw. */
+function layerOpacity(id: LayerId, now: number, takeover: boolean): number {
+  const cfg = layersConfig.layers[id]
+  const anySolo = LAYER_IDS.some((l) => layersConfig.layers[l].solo)
+  if (cfg.muted || (anySolo && !cfg.solo)) return 0
+  let a = cfg.opacity * scheduler.opacity(id, now, beat.clock)
+  if (takeover && id !== 'takeover') {
+    if (layersConfig.takeoverMode === 'hide') return 0
+    if (layersConfig.takeoverMode === 'dim') a *= 1 - layersConfig.takeoverDim
+  }
+  return a
+}
+
+/** Entrance animation progress for the pad on a layer (1 = finished or none). */
+function entranceProgress(id: LayerId, now: number): number {
+  const v = scheduler.voiceOn(id)
+  if (!v || layers[id].current?.owner !== v.padId) return 1
+  const { entrance, entranceBeats } = v.spec.placement
+  if (entrance === 'none' || entranceBeats <= 0) return 1
+  return Math.min(1, Math.max(0, (beat.clock.position(now) - v.startPos) / entranceBeats))
+}
+
+/** Tempo sync: stretch the pad's clip to its beat count at the current tempo. */
+function applyTempoSync(id: LayerId): void {
+  const layer = layers[id]
+  const v = scheduler.voiceOn(id)
+  const owned = !!v && layer.current?.owner === v.padId
+  if (owned && v.spec.syncBeats !== null && layer.durationMs > 0) {
+    layer.speedOverride = layer.durationMs / (v.spec.syncBeats * (60000 / beat.bpm))
+  } else if (layer.speedOverride !== null) {
+    layer.speedOverride = null
+  }
+}
+
+function showing(): Record<LayerId, LayerShowing> {
+  return Object.fromEntries(
+    LAYER_IDS.map((id) => {
+      const cur = layers[id].current
+      return [id, { clipId: cur?.id ?? null, padId: cur?.owner ?? null }]
+    }),
+  ) as Record<LayerId, LayerShowing>
+}
+
+function sendLayerState(force = false): void {
+  const s = showing()
+  const sig = JSON.stringify(s)
+  if (!force && sig === layerStateSent) return
+  layerStateSent = sig
+  bridge.sendToControl({ type: 'layerState', layers: s })
+}
+
+// ---- beat + audio -----------------------------------------------------------
 
 const beat = new BeatEngine(HOP_SIZE / 48000, performance.now())
 const metronome = new Metronome(document.getElementById('metronome') as HTMLDivElement)
@@ -68,7 +163,7 @@ function sendBeatState(now = performance.now()): void {
   bridge.sendToControl({ type: 'beatState', state: beat.state(now) })
 }
 
-// ---- pads ------------------------------------------------------------------
+// ---- pads -------------------------------------------------------------------
 
 let libraryClips: ClipInfo[] = []
 
@@ -96,6 +191,7 @@ const scheduler = new TriggerScheduler({
 /** Pad actions as they fired, newest last, for tests and diagnostics. */
 const recentActions: {
   type: TriggerAction['type']
+  layer: LayerId
   padId: string
   clipId?: string
   atMs: number
@@ -115,15 +211,22 @@ function applyTriggerActions(actions: TriggerAction[], now: number): void {
   for (const a of actions) {
     recentActions.push({
       type: a.type,
+      layer: a.layer,
       padId: a.padId,
       atMs: now,
       posAtFire: beat.clock.position(now),
       ...(a.type === 'start' ? { clipId: a.clipId, startPos: a.startPos } : {}),
     })
     if (recentActions.length > 64) recentActions.shift()
+    const layer = layers[a.layer]
     switch (a.type) {
       case 'start':
-        layer.play(a.clipId, layer.settings, frameCount, a.padId, a.spec.mode !== 'oneShot')
+        layer.play(a.clipId, layer.settings, frameCount, {
+          owner: a.padId,
+          loop: a.spec.mode !== 'oneShot',
+          placement: a.spec.placement,
+          key: a.spec.key,
+        })
         break
       case 'restart':
         if (layer.current?.owner === a.padId) layer.restart()
@@ -135,17 +238,7 @@ function applyTriggerActions(actions: TriggerAction[], now: number): void {
   }
 }
 
-/** Per-frame pad effects: tempo-synced speed and fades for the pad that owns the layer. */
-function padFrameEffects(now: number): number {
-  const spec = scheduler.currentSpec
-  const owned = !!spec && layer.current?.owner === scheduler.currentPadId
-  if (owned && spec.syncBeats !== null && layer.durationMs > 0) {
-    layer.speedOverride = layer.durationMs / (spec.syncBeats * (60000 / beat.bpm))
-  } else if (layer.speedOverride !== null) {
-    layer.speedOverride = null
-  }
-  return owned ? scheduler.opacity(now, beat.clock) : 1
-}
+// ---- frame loop ---------------------------------------------------------------
 
 let background: Rgb = [0, 0, 0]
 let pendingBackgroundAck = false
@@ -173,13 +266,18 @@ bridge.onControlMessage((msg) => {
       metronome.setVisible(msg.visible)
       break
     case 'playClip':
-      // A library preview takes the layer over from any pad.
-      scheduler.onLayerTakenOver()
-      layer.play(msg.id, msg.settings, frameCount)
+      // A library preview takes its layer over from any pad.
+      scheduler.onLayerTakenOver(PREVIEW_LAYER)
+      layers[PREVIEW_LAYER].play(msg.id, msg.settings, frameCount)
       break
     case 'stopClip':
-      applyTriggerActions(scheduler.stopAll(), performance.now())
-      layer.stop()
+      applyTriggerActions(scheduler.stopLayer(PREVIEW_LAYER), performance.now())
+      layers[PREVIEW_LAYER].stop()
+      sendTriggerState()
+      break
+    case 'stopLayer':
+      applyTriggerActions(scheduler.stopLayer(msg.layer), performance.now())
+      layers[msg.layer].stop()
       sendTriggerState()
       break
     case 'padPress':
@@ -196,6 +294,7 @@ bridge.onControlMessage((msg) => {
       break
     case 'stopAll':
       applyTriggerActions(scheduler.stopAll(), performance.now())
+      for (const id of LAYER_IDS) layers[id].stop()
       sendTriggerState()
       break
     case 'setTriggerSettings':
@@ -203,17 +302,28 @@ bridge.onControlMessage((msg) => {
       sendTriggerState()
       break
     case 'setLayerSettings':
-      layer.setSettings(msg.settings)
+      // Loop / speed / fit from the library-preview panel.
+      layers[PREVIEW_LAYER].setSettings(msg.settings)
+      break
+    case 'setLayers':
+      layersConfig = structuredClone(msg.config)
+      break
+    case 'setMaster':
+      master = { ...msg.master }
+      break
+    case 'setPreview':
+      previewEnabled = msg.enabled
       break
     case 'requestStatus': {
       for (const [id, state] of Object.entries(media.states())) {
         bridge.sendToControl({ type: 'clipState', id, state })
       }
-      const cur = layer.current
+      const cur = layers[PREVIEW_LAYER].current
       if (cur?.started) bridge.sendToControl({ type: 'clipStarted', id: cur.id, waitFrames: 0 })
       bridge.sendToControl({ type: 'audioStatus', status: audio.currentStatus })
       sendBeatState()
       sendTriggerState()
+      sendLayerState(true)
       break
     }
     case 'beatCommand':
@@ -252,16 +362,21 @@ function updateOverlay(): void {
   const s = frameStats.snapshot()
   const m = media.stats()
   const { width, height } = stage.size
-  const cur = layer.current
-  const clipLine = cur ? `${cur.clip.info.name} (${cur.clip.width}x${cur.clip.height})` : '(none)'
+  const layerLines = LAYER_IDS.map((id) => {
+    const cur = layers[id].current
+    const cfg = layersConfig.layers[id]
+    const flags = `${cfg.muted ? ' muted' : ''}${cfg.solo ? ' solo' : ''}${layers[id].isPaused ? ' paused' : ''}`
+    const what = cur ? `${cur.clip.info.name}${cur.owner ? ` [${cur.owner}]` : ''}` : '-'
+    return `       ${LAYER_NAMES[id].padEnd(10)} ${what} (${cfg.blend} ${Math.round(cfg.opacity * 100)}%${flags})`
+  }).join('\n')
   overlay.textContent =
     `VEEJUS OUTPUT\n` +
     `fps    ${s.fps.toFixed(1)}\n` +
     `frame  ${s.frameTimeAvgMs.toFixed(2)} ms avg / ${s.frameTimeMaxMs.toFixed(2)} ms max\n` +
     `drops  ${s.droppedFrames} (last 1s)\n` +
     `size   ${width}x${height}\n` +
-    `bg     ${rgbToHex(background)}\n` +
-    `clip   ${clipLine}\n` +
+    `bg     ${rgbToHex(background)}  master ${Math.round(master.brightness * 100)}%${master.blackout ? ' BLACKOUT' : ''}\n` +
+    `layers\n${layerLines}\n` +
     `media  ${m.readyClips} ready, ${m.loadingClips} loading\n` +
     `       images ${(m.imageBytes / MB).toFixed(0)}/${(m.imageBudgetBytes / MB).toFixed(0)} MB, ` +
     `videos ${m.warmVideos}/${m.warmVideoLimit} warm\n` +
@@ -292,7 +407,15 @@ function audioOverlayText(): string {
   )
 }
 
+function masterBrightness(): number {
+  return master.blackout ? 0 : master.brightness
+}
+
+/** JS time spent in each recent frame callback, ms. */
+const cpuMs: number[] = []
+
 function frame(now: number): void {
+  const frameStart = performance.now()
   frameStats.push(now)
   frameCount++
   const dt = lastFrameAt === null ? 0 : now - lastFrameAt
@@ -304,10 +427,37 @@ function frame(now: number): void {
     bridge.sendToControl({ type: 'beat', event })
   }
   applyTriggerActions(scheduler.update(now, dt > 0 ? dt : 1000 / 60, beat.clock), now)
-  const opacity = padFrameEffects(now)
 
+  const takeover = takeoverActive()
+  const pauseBelow = takeover && layersConfig.takeoverMode === 'pause'
   stage.beginFrame(background)
-  layer.render(dt, frameCount, opacity)
+  for (const id of LAYER_IDS) {
+    const layer = layers[id]
+    layer.setPaused(pauseBelow && id !== 'takeover')
+    applyTempoSync(id)
+    layer.render(dt, frameCount, {
+      opacity: layerOpacity(id, now, takeover),
+      blend: layersConfig.layers[id].blend,
+      entranceProgress: entranceProgress(id, now),
+    })
+  }
+  stage.endFrame(masterBrightness())
+
+  while (pixelRequests.length > 0) {
+    const r = pixelRequests.shift()!
+    const { width, height } = stage.size
+    r.resolve(stage.readPixel(r.fx * (width - 1), r.fy * (height - 1)))
+  }
+  // Preview readback is asynchronous: collect a finished one, maybe start the next.
+  const preview = stage.takePreview()
+  if (preview && previewEnabled) bridge.sendToControl({ type: 'previewFrame', ...preview })
+  if (previewEnabled && now - lastPreviewAt >= PREVIEW_INTERVAL_MS) {
+    const { width, height } = stage.size
+    const ph = Math.max(1, Math.round((PREVIEW_WIDTH * height) / width))
+    if (stage.requestPreview(PREVIEW_WIDTH, ph, masterBrightness())) lastPreviewAt = now
+  }
+  cpuMs.push(performance.now() - frameStart)
+  if (cpuMs.length > 120) cpuMs.shift()
 
   if (now - lastBeatStateAt >= BEAT_STATE_INTERVAL_MS) {
     lastBeatStateAt = now
@@ -321,12 +471,8 @@ function frame(now: number): void {
     lastTriggerStateAt = now
     sendTriggerState(now)
   }
+  sendLayerState()
 
-  while (pixelRequests.length > 0) {
-    const r = pixelRequests.shift()!
-    const { width, height } = stage.size
-    r.resolve(stage.readPixel(r.fx * (width - 1), r.fy * (height - 1)))
-  }
   if (pendingBackgroundAck) {
     pendingBackgroundAck = false
     bridge.sendToControl({ type: 'backgroundApplied', color: background })
@@ -346,14 +492,21 @@ function frame(now: number): void {
 // Read-only hooks for end-to-end tests.
 ;(window as unknown as { __veejusOutput: unknown }).__veejusOutput = {
   getState: () => {
-    const cur = layer.current
+    const now = performance.now()
+    const preview = layers[PREVIEW_LAYER]
+    const cur = preview.current
+    const takeover = takeoverActive()
     return {
       background,
       frameCount,
       overlayVisible: !overlay.hidden,
       canvas: stage.size,
       frameStats: frameStats.snapshot(),
-      settings: layer.settings,
+      cpu: {
+        avgMs: cpuMs.reduce((a, b) => a + b, 0) / Math.max(1, cpuMs.length),
+        maxMs: Math.max(0, ...cpuMs),
+      },
+      settings: preview.settings,
       clipStates: media.states(),
       media: media.stats(),
       audio: {
@@ -363,15 +516,34 @@ function frame(now: number): void {
         rms: audio.snapshot.rms,
         latencyMs: audio.latencyMs,
       },
-      beat: beat.state(performance.now()),
+      beat: beat.state(now),
       trigger: {
-        state: scheduler.state(performance.now(), beat.clock),
+        state: scheduler.state(now, beat.clock),
         recentActions: [...recentActions],
         beatsPerMs: beat.clock.beatsPerMs,
         owner: cur?.owner ?? null,
-        opacity: padFrameEffects(performance.now()),
-        speedOverride: layer.speedOverride,
+        opacity: scheduler.opacity(PREVIEW_LAYER, now, beat.clock),
+        speedOverride:
+          LAYER_IDS.map((id) => layers[id].speedOverride).find((s) => s !== null) ?? null,
       },
+      layers: Object.fromEntries(
+        LAYER_IDS.map((id) => {
+          const l = layers[id]
+          return [
+            id,
+            {
+              clipId: l.current?.id ?? null,
+              owner: l.current?.owner ?? null,
+              paused: l.isPaused,
+              transform: l.lastTransform,
+              opacity: layerOpacity(id, now, takeover),
+            },
+          ]
+        }),
+      ),
+      layersConfig,
+      master,
+      takeoverActive: takeover,
       current: cur
         ? {
             id: cur.id,

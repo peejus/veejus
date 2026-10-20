@@ -7,3 +7,4 @@ playwright-report/
 fixtures/stress/
 fixtures/audio/
 tmp/
+fixtures/perf/

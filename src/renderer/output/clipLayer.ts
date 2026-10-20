@@ -1,4 +1,5 @@
-import { fitRect } from '@core/fit'
+import { placeClip, type Transform } from '@core/placement'
+import { DEFAULT_PLACEMENT, type BlendMode, type KeySettings, type Placement } from '@shared/layers'
 import type { LayerSettings } from '@shared/protocol'
 import type { LoadedClip, MediaManager } from './media/mediaManager'
 import type { Stage, StageTexture } from './stage'
@@ -15,6 +16,23 @@ export interface ClipLayerEvents {
   onError(id: string, message: string): void
 }
 
+/** How a pad wants its clip shown; library previews use none of these. */
+export interface PlayOptions {
+  owner?: string | null
+  /** Loop setting fixed by the pad's mode, overriding the layer setting. */
+  loop?: boolean | null
+  placement?: Placement | null
+  key?: KeySettings | null
+}
+
+/** Per-frame compositing inputs for this layer. */
+export interface RenderOptions {
+  opacity: number
+  blend: BlendMode
+  /** 0..1 progress of the entrance animation (1 = done). */
+  entranceProgress: number
+}
+
 interface Playing {
   id: string
   clip: LoadedClip
@@ -26,13 +44,15 @@ interface Playing {
   hasTexture: boolean
   started: boolean
   requestedAtFrame: number
-  /** Pad that started this clip, or null. */
   owner: string | null
-  /** Loop setting fixed by the pad's mode, overriding the layer setting. */
   loop: boolean | null
+  placement: Placement | null
+  key: KeySettings | null
+  /** Random spot for the 'random' anchor, chosen when the clip starts. */
+  random: [number, number]
 }
 
-/** One clip layer: plays a single clip at a time, drawn over the background. */
+/** One compositing layer: plays a single clip at a time. */
 export class ClipLayer {
   private playing: Playing | null = null
   private texture: StageTexture | null = null
@@ -41,6 +61,9 @@ export class ClipLayer {
   private requestToken = 0
   /** Playback speed forced by tempo sync; null uses the layer setting. */
   speedOverride: number | null = null
+  /** Where the clip was last drawn (for tests and diagnostics). */
+  lastTransform: Transform | null = null
+  private paused = false
 
   constructor(
     private readonly stage: Stage,
@@ -53,29 +76,20 @@ export class ClipLayer {
     return this.playing
   }
 
-  /**
-   * Start `id`. A ready clip begins on the next rendered frame; otherwise it loads first.
-   * Pads pass themselves as `owner` and fix looping by their play mode.
-   */
-  play(
-    id: string,
-    settings: LayerSettings,
-    frameNumber: number,
-    owner: string | null = null,
-    loop: boolean | null = null,
-  ): void {
+  /** Start `id`. A ready clip begins on the next rendered frame; otherwise it loads first. */
+  play(id: string, settings: LayerSettings, frameNumber: number, options: PlayOptions = {}): void {
     const token = ++this.requestToken
     this.settings = settings
     this.speedOverride = null
     const ready = this.media.getReady(id)
     if (ready) {
-      this.begin(id, ready, frameNumber, owner, loop)
+      this.begin(id, ready, frameNumber, options)
       return
     }
     this.media
       .load(id)
       .then((clip) => {
-        if (token === this.requestToken) this.begin(id, clip, frameNumber, owner, loop)
+        if (token === this.requestToken) this.begin(id, clip, frameNumber, options)
       })
       .catch((err: unknown) => {
         if (token === this.requestToken) {
@@ -96,11 +110,26 @@ export class ClipLayer {
     if (p.clip.kind === 'video') {
       p.clip.el.currentTime = 0
       p.clip.hasNewFrame = true
-      if (p.clip.el.paused) void p.clip.el.play().catch(() => {})
+      if (p.clip.el.paused && !this.paused) void p.clip.el.play().catch(() => {})
     } else {
       p.elapsedMs = 0
       p.uploadedFrame = -1
     }
+  }
+
+  /** Freeze or resume playback (the layer keeps drawing its current frame). */
+  setPaused(paused: boolean): void {
+    if (paused === this.paused) return
+    this.paused = paused
+    const c = this.playing?.clip
+    if (c?.kind === 'video') {
+      if (paused) c.el.pause()
+      else void c.el.play().catch(() => {})
+    }
+  }
+
+  get isPaused(): boolean {
+    return this.paused
   }
 
   /** Natural length of the current clip at speed 1, ms (0 if unknown). */
@@ -114,19 +143,15 @@ export class ClipLayer {
     this.settings = settings
   }
 
-  private begin(
-    id: string,
-    clip: LoadedClip,
-    frameNumber: number,
-    owner: string | null,
-    loop: boolean | null,
-  ): void {
+  private begin(id: string, clip: LoadedClip, frameNumber: number, o: PlayOptions): void {
     this.end('replaced')
     this.media.pin(id)
-    if (clip.kind === 'video') clip.start(loop ?? this.settings.loop, this.settings.speed)
+    const loop = o.loop ?? null
+    if (clip.kind === 'video') {
+      clip.start(loop ?? this.settings.loop, this.settings.speed)
+      if (this.paused) clip.el.pause()
+    }
     this.playing = {
-      owner,
-      loop,
       id,
       clip,
       elapsedMs: 0,
@@ -134,6 +159,11 @@ export class ClipLayer {
       hasTexture: false,
       started: false,
       requestedAtFrame: frameNumber,
+      owner: o.owner ?? null,
+      loop,
+      placement: o.placement ?? null,
+      key: o.key ?? null,
+      random: [Math.random(), Math.random()],
     }
   }
 
@@ -141,6 +171,7 @@ export class ClipLayer {
     const p = this.playing
     if (!p) return
     this.playing = null
+    this.lastTransform = null
     if (p.clip.kind === 'video') p.clip.stop()
     this.media.unpin(p.id)
     this.events.onEnded(p.id, p.owner, reason)
@@ -158,13 +189,12 @@ export class ClipLayer {
     return this.texture
   }
 
-  /** Advance and draw. Call once per rendered frame, after the background is drawn. */
-  render(dtMs: number, frameNumber: number, opacity = 1): void {
+  /** Advance and composite. Call once per rendered frame, bottom layer first. */
+  render(dtMs: number, frameNumber: number, o: RenderOptions): void {
     const p = this.playing
     if (!p || !this.stage.ready) return
     const tex = this.ensureTexture()
     if (!tex) return
-    const { fit } = this.settings
     const loop = p.loop ?? this.settings.loop
     const speed = this.speedOverride ?? this.settings.speed
     const clip = p.clip
@@ -182,7 +212,7 @@ export class ClipLayer {
       }
     } else {
       // The first frame is shown at time 0; time advances from the frame after.
-      if (p.started) p.elapsedMs += Math.min(dtMs, MAX_STEP_MS) * speed
+      if (p.started && !this.paused) p.elapsedMs += Math.min(dtMs, MAX_STEP_MS) * speed
       const pos = clip.timeline.frameAt(p.elapsedMs, loop)
       if (pos.done) {
         this.end('finished')
@@ -197,7 +227,13 @@ export class ClipLayer {
 
     if (!p.hasTexture) return
     const { width, height } = this.stage.size
-    this.stage.drawTexture(tex, fitRect(tex.width, tex.height, width, height, fit), opacity)
+    const placement = p.placement ?? { ...DEFAULT_PLACEMENT, fit: this.settings.fit }
+    const t = placeClip(tex.width, tex.height, width, height, placement, {
+      entranceProgress: o.entranceProgress,
+      random: p.random,
+    })
+    this.lastTransform = t
+    this.stage.drawLayer(tex, t, { opacity: o.opacity, blend: o.blend, key: p.key })
     if (!p.started) {
       p.started = true
       this.events.onStarted(p.id, frameNumber - p.requestedAtFrame)

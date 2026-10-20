@@ -233,5 +233,117 @@ function makeStress() {
   console.log(`${n} stress clips written to ${dir}`)
 }
 
+/** Small clips for keying and blend-mode tests (committed, in fixtures/keying). */
+function makeKeying() {
+  const dir = join(root, 'fixtures/keying')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const f = (name) => join(dir, name)
+  // Pure green with a red square in the middle (still), and a moving magenta ball (video).
+  run([
+    '-f',
+    'lavfi',
+    '-i',
+    'color=c=0x00ff00:s=160x90:d=1',
+    '-frames:v',
+    '1',
+    '-vf',
+    'drawbox=x=60:y=25:w=40:h=40:color=red:t=fill',
+    f('greenscreen.png'),
+  ])
+  run([
+    '-f',
+    'lavfi',
+    '-i',
+    'color=c=0x00ff00:s=320x180:r=30:d=2',
+    '-vf',
+    "geq=r='if(lt(hypot(X-(80+T*80),Y-90),40),255,0)':g='if(lt(hypot(X-(80+T*80),Y-90),40),0,255)':b='if(lt(hypot(X-(80+T*80),Y-90),40),255,0)'",
+    '-c:v',
+    'libx264',
+    '-pix_fmt',
+    'yuv420p',
+    '-crf',
+    '12',
+    f('greenscreen.mp4'),
+  ])
+  // Black with a white square: for the luma key.
+  run([
+    '-f',
+    'lavfi',
+    '-i',
+    'color=c=black:s=160x90:d=1',
+    '-frames:v',
+    '1',
+    '-vf',
+    'drawbox=x=60:y=25:w=40:h=40:color=white:t=fill',
+    f('luma.png'),
+  ])
+  // Solid colors for blend-mode math.
+  run(['-f', 'lavfi', '-i', 'color=c=red:s=64x36:d=1', '-frames:v', '1', f('solid-red.png')])
+  run(['-f', 'lavfi', '-i', 'color=c=0x808080:s=64x36:d=1', '-frames:v', '1', f('solid-gray.png')])
+  console.log(`Keying fixtures written to ${dir}`)
+}
+
+/** 1080p clips for the Phase 5 four-layer performance check (gitignored, fixtures/perf). */
+function makePerf() {
+  const dir = join(root, 'fixtures/perf')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const f = (name) => join(dir, name)
+  run([
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc2=s=1920x1080:r=30,trim=duration=10',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-pix_fmt',
+    'yuv420p',
+    '-b:v',
+    '8M',
+    f('bg-1080.mp4'),
+  ])
+  run([
+    '-f',
+    'lavfi',
+    '-i',
+    'color=c=0x00ff00:s=1920x1080:r=30:d=6',
+    '-vf',
+    "drawbox=x='600+300*sin(t*2)':y=300:w=500:h=500:color=0xff00ff:t=fill",
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-pix_fmt',
+    'yuv420p',
+    '-b:v',
+    '6M',
+    f('green-1080.mp4'),
+  ])
+  run([
+    '-f',
+    'lavfi',
+    '-i',
+    'mandelbrot=s=1280x720:r=30,trim=duration=6',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-pix_fmt',
+    'yuv420p',
+    '-b:v',
+    '5M',
+    f('takeover-720.mp4'),
+  ])
+  gif(f('dance.gif'), 'testsrc=s=480x270:r=15,trim=duration=2', HALF_ALPHA)
+  console.log(`Performance fixtures written to ${dir}`)
+}
+
 if (process.argv.includes('--stress')) makeStress()
-else makeBasic()
+else if (process.argv.includes('--perf')) makePerf()
+else {
+  makeBasic()
+  makeKeying()
+}

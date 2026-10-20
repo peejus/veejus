@@ -28,6 +28,15 @@ import {
   type BeatState,
 } from './beat'
 import {
+  isLayerId,
+  isLayersConfig,
+  isMasterSettings,
+  LAYER_IDS,
+  type LayerId,
+  type LayersConfig,
+  type MasterSettings,
+} from './layers'
+import {
   isPadId,
   isPadSpec,
   isTriggerSettings,
@@ -108,6 +117,12 @@ export type ControlToOutput =
   /** Stop every pad and cancel the drop. */
   | { type: 'stopAll' }
   | { type: 'setTriggerSettings'; settings: TriggerSettings }
+  | { type: 'setLayers'; config: LayersConfig }
+  | { type: 'setMaster'; master: MasterSettings }
+  /** Turn the preview-monitor frame stream on or off. */
+  | { type: 'setPreview'; enabled: boolean }
+  /** Clear one layer (and stop the pad on it). */
+  | { type: 'stopLayer'; layer: LayerId }
 
 export interface FrameStatsSnapshot {
   fps: number
@@ -157,6 +172,19 @@ export type OutputToControl =
   | { type: 'beat'; event: BeatEvent }
   /** Pad states and drop countdown: on every change and ~10 per second while armed. */
   | { type: 'triggerState'; state: TriggerState }
+  /** Downscaled final frame for the preview monitor (RGBA, bottom-up rows). */
+  | { type: 'previewFrame'; width: number; height: number; pixels: Uint8Array }
+  /** What each layer shows, on every change. */
+  | { type: 'layerState'; layers: Record<LayerId, LayerShowing> }
+
+export interface LayerShowing {
+  clipId: string | null
+  /** Pad that started it, or null for a library preview. */
+  padId: string | null
+}
+
+/** Largest preview frame accepted, per side. */
+export const PREVIEW_MAX_SIDE = 640
 
 /** Window commands the output page can ask main for (e.g. from its own key handling). */
 export type OutputCommand = { type: 'exitFullscreen' } | { type: 'toggleFullscreen' }
@@ -272,6 +300,14 @@ export function isControlToOutput(v: unknown): v is ControlToOutput {
       return true
     case 'setTriggerSettings':
       return isTriggerSettings(v.settings)
+    case 'setLayers':
+      return isLayersConfig(v.config)
+    case 'setMaster':
+      return isMasterSettings(v.master)
+    case 'setPreview':
+      return typeof v.enabled === 'boolean'
+    case 'stopLayer':
+      return isLayerId(v.layer)
     case 'setLayerSettings':
       return isLayerSettings(v.settings)
     default:
@@ -324,6 +360,29 @@ export function isOutputToControl(v: unknown): v is OutputToControl {
       return isBeatEvent(v.event)
     case 'triggerState':
       return isTriggerState(v.state)
+    case 'previewFrame':
+      return (
+        isFiniteNum(v.width) &&
+        isFiniteNum(v.height) &&
+        v.width > 0 &&
+        v.height > 0 &&
+        v.width <= PREVIEW_MAX_SIDE &&
+        v.height <= PREVIEW_MAX_SIDE &&
+        v.pixels instanceof Uint8Array &&
+        v.pixels.length === v.width * v.height * 4
+      )
+    case 'layerState':
+      return (
+        isObj(v.layers) &&
+        LAYER_IDS.every((id) => {
+          const l = (v.layers as Obj)[id]
+          return (
+            isObj(l) &&
+            (l.clipId === null || typeof l.clipId === 'string') &&
+            (l.padId === null || typeof l.padId === 'string')
+          )
+        })
+      )
     default:
       return false
   }

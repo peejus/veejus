@@ -536,7 +536,7 @@ In **Audio input**, pick **Test beat**, your mixer input or **System audio**. Th
 
 ---
 
-## Phase 4: Beat-synced triggering (completed 2026-10-20, awaiting approval)
+## Phase 4: Beat-synced triggering (completed and approved 2026-10-20)
 
 ### What was built
 
@@ -646,3 +646,136 @@ In **Audio input**, pick **Test beat**, your mixer input or **System audio**. Th
 1. Run the real-music check (step 9). Do quantized pads feel on the beat on your setup, and with what latency offset?
 2. For Phase 5 layers: should each pad pick its layer, with defaults by mode (loops to the background, one-shots and N-beat pads to overlays, armed drops to the takeover layer)?
 3. Is right-click to edit and Shift to arm comfortable, or would you prefer different gestures for your controller workflow?
+
+**Approval notes (2026-10-20):** Phase 5 was started without answers, so the recommended defaults stand:
+
+- Pads pick their layer, with defaults by mode.
+- Right-click still edits a pad, and Shift still arms it.
+
+---
+
+## Phase 5: Layers, compositing and placement (completed 2026-10-20, awaiting approval)
+
+### What was built
+
+**Four layers** (bottom to top): **Background**, **Overlay A**, **Overlay B**, **Takeover**
+
+- Each layer plays one clip at a time, with its own opacity, **blend mode** (normal, add, screen, multiply, difference), **mute** and **solo**.
+- The scheduler now keeps one voice per layer. A pad replaces only what's on its own layer, so a background loop keeps running while meme clips pop over it.
+- A drop with several armed pads fires them all together, each on its own layer.
+
+**Pads target layers.** A pad's layer is **Auto** by default:
+
+- toggle loops go to **Background**
+- one-shot, hold and retrigger pads go to **Overlay A**
+- N-beat pads go to **Overlay B**
+- anything fired by a **drop** goes to **Takeover**
+
+You can override this per pad. Pad tiles show the target (`loop·BG`, `1×·A`, …). Library clicks still preview instantly on the Background layer.
+
+**Placement per pad**
+
+- **Position:** full screen (with fit), centered, any corner, or a random spot, with size, X/Y offset and rotation.
+- **Entrances:** **pop** (scale-in with a bounce) or **slide in** from any edge, timed in beats.
+
+**Keying per pad**
+
+- **Chroma key:** green screen, blue screen or any custom color, with similarity, smoothness and spill suppression.
+- **Luma key:** removes dark (or bright) areas.
+
+**Takeover behavior:** while something shows on the Takeover layer, the layers below can **keep playing**, **dim** (adjustable, default 70%), **pause** (videos and GIFs freeze) or **hide**. They restore the moment the takeover ends.
+
+**Master:** brightness and **Blackout** (button or the backquote key).
+
+**Preview monitor:** a live 320-pixel-wide mirror of the final output at the top of the sidebar, about 15 fps, with on/off.
+
+**Compositor (output)** — rewritten:
+
+- **Layers:** composited bottom to top into an offscreen buffer. Before each layer the buffer is copied, so the layer's shader can read what's underneath. That makes every blend mode exact, difference included.
+- **Layer shader:** un-premultiplies, keys, applies opacity, then blends.
+- **Master pass:** draws the result to the screen with brightness.
+- **Preview readback:** asynchronous (pixel buffer plus GPU fence), so the render loop never waits on the GPU.
+
+**Fixtures**
+
+- `fixtures/keying` (committed): a green-screen PNG and MP4, a luma-key PNG, and solid red and gray.
+- `npm run fixtures:perf` makes 1080p and 720p clips plus a GIF for the performance test (gitignored).
+
+**Fix along the way:** still images in one-shot mode vanished after 0.1 s; they were treated as one 100 ms GIF frame. Stills now have a natural length of 2 s, which also helps tempo sync.
+
+### Performance (acceptance)
+
+Measured by `tests/e2e/perf.spec.ts` on this machine, over 5 runs:
+
+- **Setup:** output window at **1920×1080**, live preview on.
+- **Layers:**
+  - Background: a 1080p H.264 loop
+  - Overlay A: a rotated, transparent 480p GIF
+  - Overlay B: a **chroma-keyed 1080p H.264** clip
+  - Takeover: a 720p H.264 clip, with takeover mode "keep playing" so all four draw
+
+| Result                | Value                                |
+| --------------------- | ------------------------------------ |
+| Average fps           | **60.0** (each 1 s sample 59.9–60.0) |
+| Dropped-frame samples | **0**                                |
+| Longest frame         | 16.9 ms                              |
+| Frame JS time         | ~4.8 ms average                      |
+
+The first version read the preview back synchronously. That made the CPU wait for the GPU about 15 times a second and dropped one run to 55.6 fps. Switching to an asynchronous readback fixed it.
+
+### Test results
+
+- `npm run typecheck` and `npm run lint`: clean.
+- `npm run test:unit`: **161 passing**. New:
+  - placement math: fit, anchors and margins, random spots staying on screen, offsets and rotation, pop overshoot, slides starting fully off each edge
+  - per-layer scheduler cases: layers coexisting, stop layer, a pad moving layers, a multi-pad drop filling several layers
+- `npm run test:e2e`: **71 passing**. The 9 new layer tests:
+  - four layers stacking with placement, luma key and chroma key, checked pixel by pixel
+  - **all five blend modes at 50% opacity giving the exact predicted colors**: red over 50% gray gives normal (191,64,64), add (255,128,128), screen (191,128,128), multiply (128,64,64), difference (128,128,128)
+  - mute and solo
+  - a chroma-keyed video
+  - the pop entrance growing to its final size
+  - takeover dim (lower opacity 0.3), pause and hide, each restoring afterwards
+  - master brightness and the blackout key
+  - **the preview monitor matching the output pixels**
+  - the pad editor setting layer, position, size and keying through the UI
+  - Plus the 1080p performance test.
+- The Phase 0–4 suites still pass on the new compositor, including Phase 1's pixel-level transparency and fit tests. One Phase 4 test now accepts a press that lands in the 80 ms grace window.
+
+### Manual test script
+
+1. Run `npm run dev`. Drag `fixtures/media` and `fixtures/keying` (or your own clips) into the library, then click **Auto-fill**.
+2. Right-click a pad: set **Mode: Toggle loop** (Auto → Background) and fire it. Then fire a few one-shot pads. **Expected:** the one-shots pop over the running loop instead of replacing it. The **Layers** panel shows what's on each layer, and the **Output preview** mirrors the output.
+3. On a one-shot pad, set **Position: Top right**, **Size** 30%, **Rotation** 10°, **Entrance: Pop**. Fire it. **Expected:** it bounces in, tilted, in the top-right corner.
+4. Put `greenscreen.mp4` on a pad with **Keying → Green screen**. **Expected:** the green disappears and the loop shows through. Try **Similarity** and **Spill**.
+5. In **Layers**, change Overlay A's **blend** (Screen and Add look great on dark clips) and opacity. **M** mutes and **S** solos a layer. ■ stops a layer.
+6. Arm a pad with **Shift** and let the drop fire. **Expected:** it lands on **Takeover**, and the layers below dim. Try **Under takeover: Pause** and **Hide**.
+7. Press the backquote key: **Blackout**. Press again to restore. Try **Master brightness**.
+8. Optional:
+   1. Run `npm run fixtures:perf` and fire the four 1080p clips onto the four layers.
+   2. Make the output full screen on a 1080p display.
+   3. **Expected:** the overlay holds 60 fps.
+
+### Decisions and defaults (flag any you want changed)
+
+- **Layer order is fixed:** Background < Overlay A < Overlay B < Takeover.
+- **The library preview plays on Background.** The "Library preview" panel's loop/speed/fit apply to it.
+- **Takeover default:** **Dim 70%**.
+- **Corner positions keep a 4% (of screen height) margin.** A random position keeps the whole clip on screen.
+- **Chroma key** works on color difference (YCbCr). Default similarity is 30%, smoothness 10%, spill 50%.
+- **Preview:** 320 pixels wide at about 15 fps; you can turn it off.
+- **Still images play for 2 s** in one-shot mode.
+- **Layer mix, master and pads are not saved yet** (Phase 8).
+
+### Known issues / limitations
+
+- **The same video can't play on two layers at once.** One video element would be shared, so the second start restarts it. GIFs, WebPs and stills can.
+- **Performance was measured on this machine only** (with software video decoding). Weaker laptops may need fewer 1080p videos at once. Phase 8 adds graceful degradation.
+- **Slide entrances** use the unrotated size to decide "off-screen". A heavily rotated clip may peek in from the edge at the very start.
+- **No effects yet.** Strobes, RGB split, kaleidoscope and audio-reactive parameters are Phase 6.
+
+### Open questions for you
+
+1. Are the four fixed layers and their auto-routing right for how you'd perform, or do you want more overlay layers or a different order?
+2. Should the Takeover layer's default be **Dim**, **Pause** or **Hide**?
+3. Placement presets: are there other positions you'd use often (lower third, left/right half, ticker strip)?

@@ -3,6 +3,7 @@ import { BeatClock } from '@core/beat/beatClock'
 import { pickRandom } from '@core/trigger/randomPick'
 import { GRACE_MS, TriggerScheduler, type TriggerAction } from '@core/trigger/scheduler'
 import { isPadSpec, isTriggerState, type PadSource, type PadSpec } from '@shared/pads'
+import { DEFAULT_KEY, DEFAULT_PLACEMENT } from '@shared/layers'
 
 const FRAME = 1000 / 60
 const HALF_FRAME = FRAME / 2 + 0.01
@@ -17,6 +18,9 @@ function spec(over: Partial<PadSpec> = {}): PadSpec {
     fadeInBeats: 0,
     fadeOutBeats: 0,
     syncBeats: null,
+    layer: 'overlayA',
+    placement: DEFAULT_PLACEMENT,
+    key: DEFAULT_KEY,
     ...over,
   }
 }
@@ -143,9 +147,9 @@ describe('play modes', () => {
       ),
     )
     h.runTo(2100) // started at bar 1 (2000 ms)
-    expect(h.sched.opacity(2250, h.clock)).toBeCloseTo(0.5, 1)
-    expect(h.sched.opacity(3000, h.clock)).toBeCloseTo(1, 5)
-    expect(h.sched.opacity(3750, h.clock)).toBeCloseTo(0.5, 1)
+    expect(h.sched.opacity('overlayA', 2250, h.clock)).toBeCloseTo(0.5, 1)
+    expect(h.sched.opacity('overlayA', 3000, h.clock)).toBeCloseTo(1, 5)
+    expect(h.sched.opacity('overlayA', 3750, h.clock)).toBeCloseTo(0.5, 1)
   })
 
   it("'hold' plays while held and stops on release; releasing before the start cancels", () => {
@@ -217,8 +221,58 @@ describe('play modes', () => {
       ),
     )
     h.runTo(700)
-    expect(h.sched.currentPadId).toBe('p2')
+    expect(h.sched.voiceOn('overlayA')?.padId).toBe('p2')
     expect(Object.keys(h.sched.state(700, h.clock).pads)).toEqual(['p2'])
+  })
+
+  it('pads on different layers play at the same time', () => {
+    const h = harness(120)
+    h.at(100, () =>
+      h.sched.press(
+        'bg',
+        spec({ mode: 'toggle', quantize: 'off', layer: 'background' }),
+        h.now(),
+        h.clock,
+      ),
+    )
+    h.at(300, () =>
+      h.sched.press('ov', spec({ quantize: 'off', layer: 'overlayA' }), h.now(), h.clock),
+    )
+    h.runTo(400)
+    expect(h.sched.voiceOn('background')?.padId).toBe('bg')
+    expect(h.sched.voiceOn('overlayA')?.padId).toBe('ov')
+    expect(h.sched.state(400, h.clock).pads).toMatchObject({
+      bg: { state: 'playing', layer: 'background' },
+      ov: { state: 'playing', layer: 'overlayA' },
+    })
+    expect(h.sched.stopLayer('overlayA')).toEqual([
+      { type: 'stop', layer: 'overlayA', padId: 'ov' },
+    ])
+    expect(h.sched.voiceOn('background')?.padId).toBe('bg')
+  })
+
+  it('a pad that changes layer leaves its old one', () => {
+    const h = harness(120)
+    h.at(100, () =>
+      h.sched.press(
+        'p1',
+        spec({ mode: 'beats', lengthBeats: 8, quantize: 'off', layer: 'overlayA' }),
+        h.now(),
+        h.clock,
+      ),
+    )
+    h.at(300, () =>
+      h.sched.press(
+        'p1',
+        spec({ mode: 'beats', lengthBeats: 8, quantize: 'off', layer: 'overlayB' }),
+        h.now(),
+        h.clock,
+      ),
+    )
+    h.runTo(400)
+    expect(h.sched.voiceOn('overlayA')).toBeNull()
+    expect(h.sched.voiceOn('overlayB')?.padId).toBe('p1')
+    expect(h.log.some((l) => l.action.type === 'stop' && l.action.layer === 'overlayA')).toBe(true)
   })
 })
 
@@ -236,13 +290,17 @@ describe('drop (arm and fire)', () => {
   it('fires after N bars when set, and all armed pads fire together', () => {
     const h = harness(120)
     h.sched.settings = { quantize: 'beat', drop: { kind: 'bars', bars: 2 } }
-    h.at(3000, () => h.sched.arm('p1', spec(), h.now(), h.clock)) // beat 6: next bar at 8, +1 bar = 12
+    // beat 6: next bar at 8, +1 bar = 12
+    h.at(3000, () => h.sched.arm('p1', spec({ layer: 'background' }), h.now(), h.clock))
     h.at(3500, () =>
       h.sched.arm('p2', spec({ source: { kind: 'clip', clipId: 'clip-b' } }), h.now(), h.clock),
     )
     h.runTo(7000)
     const s = starts(h.log)
     expect(s.map((x) => (x.action as { padId: string }).padId)).toEqual(['p1', 'p2'])
+    // Different layers: both show after the drop.
+    expect(h.sched.voiceOn('background')?.padId).toBe('p1')
+    expect(h.sched.voiceOn('overlayA')?.padId).toBe('p2')
     for (const x of s) expect(Math.abs(x.atMs - 6000)).toBeLessThanOrEqual(HALF_FRAME)
   })
 
@@ -262,7 +320,7 @@ describe('drop (arm and fire)', () => {
     )
     h.at(500, () => h.sched.arm('p2', spec(), h.now(), h.clock))
     h.runTo(600)
-    expect(h.sched.stopAll()).toEqual([{ type: 'stop', padId: 'p1' }])
+    expect(h.sched.stopAll()).toEqual([{ type: 'stop', layer: 'overlayA', padId: 'p1' }])
     h.runTo(20000)
     expect(starts(h.log)).toHaveLength(1)
     const st = h.sched.state(20000, h.clock)
