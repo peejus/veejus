@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, screen, type Display, type IpcMainEvent } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  screen,
+  type Display,
+  type IpcMainEvent,
+} from 'electron'
 import { join } from 'node:path'
 import {
   Channel,
@@ -11,7 +19,23 @@ import {
   type MainResponse,
   type OutputWindowState,
 } from '@shared/protocol'
+import { Library } from './library'
+import { handleMediaProtocol, registerMediaScheme } from './mediaProtocol'
 
+// Keep paused, preloaded video players decoded so a trigger starts on the next frame,
+// and let muted clips autoplay without a user gesture.
+app.commandLine.appendSwitch('disable-media-suspend')
+app.commandLine.appendSwitch('disable-background-media-suspend')
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+// Hardware video decoders stall the GPU process for a frame or more each time one starts,
+// which shows as output hitches while clips preload. Short VJ clips decode cheaply on the
+// CPU, so software decoding is the default. Set VEEJUS_HW_VIDEO_DECODE=1 to opt back in.
+if (process.env['VEEJUS_HW_VIDEO_DECODE'] !== '1') {
+  app.commandLine.appendSwitch('disable-accelerated-video-decode')
+}
+registerMediaScheme()
+
+const library = new Library()
 let controlWin: BrowserWindow | null = null
 let outputWin: BrowserWindow | null = null
 let quitting = false
@@ -181,6 +205,36 @@ async function moveOutputToDisplay(displayId: number): Promise<void> {
   if (wasFullscreen) await setFullscreenAndWait(win, true)
 }
 
+function broadcastLibrary(): void {
+  const clips = library.list()
+  for (const win of [controlWin, outputWin]) {
+    if (win && !win.isDestroyed()) win.webContents.send(Channel.library, clips)
+  }
+}
+
+const MEDIA_EXTENSIONS = ['mp4', 'm4v', 'webm', 'mov', 'gif', 'webp', 'png', 'apng', 'jpg', 'jpeg']
+
+async function pickPaths(mode: 'files' | 'folder'): Promise<string[]> {
+  const options: Electron.OpenDialogOptions =
+    mode === 'files'
+      ? {
+          title: 'Add clips',
+          properties: ['openFile', 'multiSelections'],
+          filters: [{ name: 'Video and images', extensions: MEDIA_EXTENSIONS }],
+        }
+      : { title: 'Add a folder of clips', properties: ['openDirectory'] }
+  const result = controlWin
+    ? await dialog.showOpenDialog(controlWin, options)
+    : await dialog.showOpenDialog(options)
+  return result.canceled ? [] : result.filePaths
+}
+
+async function importAndBroadcast(paths: string[]): Promise<MainResponse> {
+  const result = await library.importPaths(paths)
+  if (result.added > 0) broadcastLibrary()
+  return { type: 'imported', result }
+}
+
 async function handleMainRequest(req: MainRequest): Promise<MainResponse> {
   switch (req.type) {
     case 'listDisplays':
@@ -199,12 +253,28 @@ async function handleMainRequest(req: MainRequest): Promise<MainResponse> {
       if (!outputWin) outputWin = createOutputWindow()
       outputWin.show()
       return { type: 'outputState', state: outputState() }
+    case 'getLibrary':
+      return { type: 'library', clips: library.list() }
+    case 'importPaths':
+      return importAndBroadcast(req.paths)
+    case 'pickAndImport':
+      return importAndBroadcast(await pickPaths(req.mode))
+    case 'removeClips':
+      if (library.remove(req.ids) > 0) broadcastLibrary()
+      return { type: 'library', clips: library.list() }
   }
 }
 
+const OUTPUT_REQUESTS = new Set<MainRequest['type']>([
+  'moveOutputToDisplay',
+  'setOutputFullscreen',
+  'showOutput',
+])
+
 function registerIpc(): void {
   const fromControl = (e: IpcMainEvent) => !!controlWin && e.sender === controlWin.webContents
-  const fromOutput = (e: IpcMainEvent) => !!outputWin && e.sender === outputWin.webContents
+  const fromOutput = (e: Pick<IpcMainEvent, 'sender'>) =>
+    !!outputWin && e.sender === outputWin.webContents
 
   // Renderer-to-renderer messages are validated, then forwarded unchanged.
   ipcMain.on(Channel.toOutput, (e, msg: unknown) => {
@@ -233,12 +303,15 @@ function registerIpc(): void {
     } catch (err) {
       return { type: 'error', message: err instanceof Error ? err.message : String(err) }
     } finally {
-      broadcastOutputState()
+      if (OUTPUT_REQUESTS.has(req.type)) broadcastOutputState()
     }
   })
+
+  ipcMain.handle(Channel.getLibrary, (e) => (fromOutput(e) ? library.list() : []))
 }
 
 app.whenReady().then(() => {
+  handleMediaProtocol(library)
   registerIpc()
   controlWin = createControlWindow()
   outputWin = createOutputWindow()

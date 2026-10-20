@@ -3,6 +3,7 @@ import {
   isOutputToControl,
   type ControlToOutput,
   type FrameStatsSnapshot,
+  type MediaStats,
   type OutputWindowState,
   type Rgb,
 } from '@shared/protocol'
@@ -14,6 +15,7 @@ export interface OutputLink {
   connected: boolean
   state: OutputWindowState
   stats: FrameStatsSnapshot | null
+  mediaStats: MediaStats | null
   /** Last control -> output -> control round trip, in ms. */
   pingMs: number | null
   /** Time from sending a background color until the output drew it, in ms. */
@@ -31,6 +33,7 @@ export function useOutputLink(): OutputLink {
     visible: false,
   })
   const [stats, setStats] = useState<FrameStatsSnapshot | null>(null)
+  const [mediaStats, setMediaStats] = useState<MediaStats | null>(null)
   const [pingMs, setPingMs] = useState<number | null>(null)
   const [backgroundLatencyMs, setBackgroundLatencyMs] = useState<number | null>(null)
 
@@ -57,6 +60,9 @@ export function useOutputLink(): OutputLink {
         case 'frameStats':
           setStats(msg.stats)
           setConnected(true)
+          break
+        case 'mediaStats':
+          setMediaStats(msg.stats)
           break
         case 'backgroundApplied':
           if (backgroundSentAt.current !== null) {
@@ -96,5 +102,5 @@ export function useOutputLink(): OutputLink {
     bridge.sendToOutput({ type: 'setBackground', color })
   }, [])
 
-  return { connected, state, stats, pingMs, backgroundLatencyMs, send, setBackground }
+  return { connected, state, stats, mediaStats, pingMs, backgroundLatencyMs, send, setBackground }
 }

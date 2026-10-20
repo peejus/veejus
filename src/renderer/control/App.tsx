@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { DisplayInfo } from '@shared/protocol'
+import type { DisplayInfo, LayerSettings } from '@shared/protocol'
 import { hexToRgb } from '@shared/color'
-import { request } from './bridge'
+import { bridge, request } from './bridge'
+import { LibraryPanel } from './LibraryPanel'
+import { PlaybackPanel } from './PlaybackPanel'
+import { useLibrary } from './useLibrary'
 import { useOutputLink } from './useOutputLink'
 
 const SWATCHES = [
@@ -13,13 +16,21 @@ const SWATCHES = [
   { name: 'White', hex: '#ffffff' },
 ]
 
+const MB = 1024 * 1024
+
 export function App() {
   const link = useOutputLink()
+  const library = useLibrary()
   const { setBackground, send } = link
   const [color, setColor] = useState('#000000')
   const [overlay, setOverlay] = useState(true)
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [layerSettings, setLayerSettings] = useState<LayerSettings>({
+    loop: true,
+    speed: 1,
+    fit: 'contain',
+  })
 
   const refreshDisplays = useCallback(() => {
     request({ type: 'listDisplays' }, 'displays')
@@ -29,6 +40,20 @@ export function App() {
 
   // Displays can be plugged in or removed at any time; main re-broadcasts state when they are.
   useEffect(refreshDisplays, [refreshDisplays, link.state])
+
+  const { markPlayRequested } = library
+  const playClip = useCallback(
+    (id: string) => {
+      markPlayRequested(id)
+      bridge.sendToOutput({ type: 'playClip', id, settings: layerSettings })
+    },
+    [markPlayRequested, layerSettings],
+  )
+
+  const changeLayerSettings = (settings: LayerSettings) => {
+    setLayerSettings(settings)
+    send({ type: 'setLayerSettings', settings })
+  }
 
   const applyColor = (hex: string) => {
     const rgb = hexToRgb(hex)
@@ -48,7 +73,7 @@ export function App() {
     send({ type: 'setDebugOverlay', visible: next })
   }
 
-  const { stats } = link
+  const { stats, mediaStats } = link
   return (
     <div className="app">
       <header className="topbar">
@@ -62,122 +87,146 @@ export function App() {
         <span className="metric" data-testid="ping-ms">
           IPC {link.pingMs !== null ? `${link.pingMs.toFixed(1)} ms` : '--'}
         </span>
+        {mediaStats && (
+          <span className="metric" data-testid="media-stats">
+            {mediaStats.readyClips} ready · {(mediaStats.imageBytes / MB).toFixed(0)} MB images ·{' '}
+            {mediaStats.warmVideos}/{mediaStats.warmVideoLimit} videos
+          </span>
+        )}
       </header>
 
-      <main className="panels">
-        <section className="panel">
-          <h2>Background</h2>
-          <div className="row">
-            <input
-              type="color"
-              aria-label="Background color"
-              value={color}
-              onChange={(e) => applyColor(e.target.value)}
-            />
-            <code data-testid="current-color">{color}</code>
-          </div>
-          <div className="swatches">
-            {SWATCHES.map((s) => (
-              <button
-                key={s.hex}
-                className="swatch"
-                title={s.name}
-                aria-label={s.name}
-                data-testid={`swatch-${s.hex.slice(1)}`}
-                style={{ background: s.hex }}
-                onClick={() => applyColor(s.hex)}
+      <div className="workspace">
+        <main className="main-area">
+          <LibraryPanel library={library} onPlay={playClip} />
+        </main>
+
+        <aside className="sidebar">
+          <PlaybackPanel
+            settings={layerSettings}
+            onChange={changeLayerSettings}
+            library={library}
+            onStop={() => send({ type: 'stopClip' })}
+          />
+
+          <section className="panel">
+            <h2>Background</h2>
+            <div className="row">
+              <input
+                type="color"
+                aria-label="Background color"
+                value={color}
+                onChange={(e) => applyColor(e.target.value)}
               />
-            ))}
-          </div>
-          <p className="hint" data-testid="bg-latency">
-            Last change drawn in{' '}
-            {link.backgroundLatencyMs !== null ? `${link.backgroundLatencyMs.toFixed(1)} ms` : '--'}{' '}
-            (one frame at 60 fps is 16.7 ms)
-          </p>
-        </section>
+              <code data-testid="current-color">{color}</code>
+            </div>
+            <div className="swatches">
+              {SWATCHES.map((s) => (
+                <button
+                  key={s.hex}
+                  className="swatch"
+                  title={s.name}
+                  aria-label={s.name}
+                  data-testid={`swatch-${s.hex.slice(1)}`}
+                  style={{ background: s.hex }}
+                  onClick={() => applyColor(s.hex)}
+                />
+              ))}
+            </div>
+            <p className="hint" data-testid="bg-latency">
+              Last change drawn in{' '}
+              {link.backgroundLatencyMs !== null
+                ? `${link.backgroundLatencyMs.toFixed(1)} ms`
+                : '--'}{' '}
+              (one frame at 60 fps is 16.7 ms)
+            </p>
+          </section>
 
-        <section className="panel">
-          <h2>Output window</h2>
-          <dl className="facts">
-            <dt>Visible</dt>
-            <dd>{link.state.visible ? 'yes' : 'no'}</dd>
-            <dt>Fullscreen</dt>
-            <dd data-testid="output-fullscreen">{link.state.fullscreen ? 'yes' : 'no'}</dd>
-          </dl>
-          <div className="row">
-            <button
-              onClick={() =>
-                run(
-                  request(
-                    { type: 'setOutputFullscreen', fullscreen: !link.state.fullscreen },
-                    'outputState',
-                  ),
-                )
-              }
-            >
-              {link.state.fullscreen ? 'Exit fullscreen' : 'Go fullscreen'}
-            </button>
-            {!link.state.visible && (
-              <button onClick={() => run(request({ type: 'showOutput' }, 'outputState'))}>
-                Show output
-              </button>
-            )}
-            <label className="check">
-              <input type="checkbox" checked={overlay} onChange={toggleOverlay} /> Debug overlay
-            </label>
-          </div>
-          <p className="hint">In the output window: Esc exits fullscreen, F11 toggles it.</p>
-
-          <h3>Displays</h3>
-          <ul className="displays" data-testid="display-list">
-            {displays.map((d) => {
-              const here = d.id === link.state.displayId
-              return (
-                <li key={d.id} className={here ? 'current' : ''}>
-                  <span>
-                    {d.label}
-                    {d.primary ? ' (primary)' : ''} · {d.width}×{d.height} @{d.scaleFactor}x
-                  </span>
-                  {here ? (
-                    <span className="tag">output here</span>
-                  ) : (
-                    <button
-                      onClick={() =>
-                        run(
-                          request({ type: 'moveOutputToDisplay', displayId: d.id }, 'outputState'),
-                        )
-                      }
-                    >
-                      Send output here
-                    </button>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-
-        <section className="panel">
-          <h2>Output frame timing</h2>
-          {stats ? (
+          <section className="panel">
+            <h2>Output window</h2>
             <dl className="facts">
-              <dt>FPS</dt>
-              <dd>{stats.fps.toFixed(1)}</dd>
-              <dt>Frame avg</dt>
-              <dd>{stats.frameTimeAvgMs.toFixed(2)} ms</dd>
-              <dt>Frame max</dt>
-              <dd>{stats.frameTimeMaxMs.toFixed(2)} ms</dd>
-              <dt>Dropped (1s)</dt>
-              <dd>{stats.droppedFrames}</dd>
+              <dt>Visible</dt>
+              <dd>{link.state.visible ? 'yes' : 'no'}</dd>
+              <dt>Fullscreen</dt>
+              <dd data-testid="output-fullscreen">{link.state.fullscreen ? 'yes' : 'no'}</dd>
             </dl>
-          ) : (
-            <p className="hint">No stats yet.</p>
-          )}
-        </section>
-      </main>
+            <div className="row">
+              <button
+                onClick={() =>
+                  run(
+                    request(
+                      { type: 'setOutputFullscreen', fullscreen: !link.state.fullscreen },
+                      'outputState',
+                    ),
+                  )
+                }
+              >
+                {link.state.fullscreen ? 'Exit fullscreen' : 'Go fullscreen'}
+              </button>
+              {!link.state.visible && (
+                <button onClick={() => run(request({ type: 'showOutput' }, 'outputState'))}>
+                  Show output
+                </button>
+              )}
+              <label className="check">
+                <input type="checkbox" checked={overlay} onChange={toggleOverlay} /> Debug overlay
+              </label>
+            </div>
+            <p className="hint">In the output window: Esc exits fullscreen, F11 toggles it.</p>
+
+            <h3>Displays</h3>
+            <ul className="displays" data-testid="display-list">
+              {displays.map((d) => {
+                const here = d.id === link.state.displayId
+                return (
+                  <li key={d.id} className={here ? 'current' : ''}>
+                    <span>
+                      {d.label}
+                      {d.primary ? ' (primary)' : ''} · {d.width}×{d.height} @{d.scaleFactor}x
+                    </span>
+                    {here ? (
+                      <span className="tag">output here</span>
+                    ) : (
+                      <button
+                        onClick={() =>
+                          run(
+                            request(
+                              { type: 'moveOutputToDisplay', displayId: d.id },
+                              'outputState',
+                            ),
+                          )
+                        }
+                      >
+                        Send output here
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+
+          <section className="panel">
+            <h2>Output frame timing</h2>
+            {stats ? (
+              <dl className="facts">
+                <dt>FPS</dt>
+                <dd>{stats.fps.toFixed(1)}</dd>
+                <dt>Frame avg</dt>
+                <dd>{stats.frameTimeAvgMs.toFixed(2)} ms</dd>
+                <dt>Frame max</dt>
+                <dd>{stats.frameTimeMaxMs.toFixed(2)} ms</dd>
+                <dt>Dropped (1s)</dt>
+                <dd>{stats.droppedFrames}</dd>
+              </dl>
+            ) : (
+              <p className="hint">No stats yet.</p>
+            )}
+          </section>
+        </aside>
+      </div>
 
       {error && (
-        <div className="error" role="alert">
+        <div className="error-banner" role="alert">
           {error}
         </div>
       )}

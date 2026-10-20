@@ -1,14 +1,18 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { Channel, type ControlToOutput, type OutputBridge } from '@shared/protocol'
+import { Channel, type ClipInfo, type ControlToOutput, type OutputBridge } from '@shared/protocol'
+
+function subscribe<T>(channel: string, handler: (payload: T) => void): () => void {
+  const listener = (_e: IpcRendererEvent, payload: T) => handler(payload)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
 
 const bridge: OutputBridge = {
   sendToControl: (msg) => ipcRenderer.send(Channel.toControl, msg),
   command: (cmd) => ipcRenderer.send(Channel.outputCommand, cmd),
-  onControlMessage: (handler) => {
-    const listener = (_e: IpcRendererEvent, msg: ControlToOutput) => handler(msg)
-    ipcRenderer.on(Channel.toOutput, listener)
-    return () => ipcRenderer.removeListener(Channel.toOutput, listener)
-  },
+  onControlMessage: (handler) => subscribe<ControlToOutput>(Channel.toOutput, handler),
+  onLibrary: (handler) => subscribe<ClipInfo[]>(Channel.library, handler),
+  getLibrary: () => ipcRenderer.invoke(Channel.getLibrary),
 }
 
 contextBridge.exposeInMainWorld('veejus', bridge)
