@@ -304,6 +304,24 @@ describe('drop (arm and fire)', () => {
     for (const x of s) expect(Math.abs(x.atMs - 6000)).toBeLessThanOrEqual(HALF_FRAME)
   })
 
+  it('changing the drop timing while armed retargets the pending drop from now', () => {
+    const h = harness(120, 8) // phrase = 16 s
+    h.at(3000, () => h.sched.arm('p1', spec(), h.now(), h.clock))
+    expect(h.sched.state(3000, h.clock).drop!.barsRemaining).toBe(7)
+    // At beat 10 (5 s) switch to "in 2 bars": next bar at beat 12, +1 bar = beat 16 (8 s).
+    h.at(5000, () =>
+      h.sched.setSettings({ quantize: 'beat', drop: { kind: 'bars', bars: 2 } }, h.now(), h.clock),
+    )
+    h.runTo(9000)
+    expect(starts(h.log)).toHaveLength(1)
+    expect(Math.abs(starts(h.log)[0]!.atMs - 8000)).toBeLessThanOrEqual(HALF_FRAME)
+    // Changing only the quantize leaves a pending drop where it is.
+    h.at(9100, () => h.sched.arm('p2', spec(), h.now(), h.clock))
+    const before = h.sched.state(9100, h.clock).drop!.beatsRemaining
+    h.sched.setSettings({ quantize: 'bar', drop: { kind: 'bars', bars: 2 } }, 9100, h.clock)
+    expect(h.sched.state(9100, h.clock).drop!.beatsRemaining).toBeCloseTo(before, 6)
+  })
+
   it('arming an armed pad disarms it; disarming the last cancels the drop', () => {
     const h = harness(120)
     h.at(1000, () => h.sched.arm('p1', spec(), h.now(), h.clock))

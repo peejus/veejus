@@ -9,6 +9,7 @@ import {
   readOutput,
   samplePixel,
   sendToOutput,
+  showMoreSettings,
   type AppHandles,
 } from './helpers'
 import {
@@ -256,6 +257,7 @@ test('the pad editor sets layer, placement and keying', async () => {
   const gridPad = h.control.locator('[data-pad="A4"]') // solid-gray.png? order: greenscreen.mp4, .png, luma, red, gray
   await gridPad.click({ button: 'right' })
   await h.control.getByLabel('Pad layer').selectOption('overlayB')
+  await showMoreSettings(h.control)
   await h.control.getByLabel('Pad quantize').selectOption('off')
   await h.control.getByLabel('Position').selectOption('topRight')
   await h.control.getByLabel('Size').fill('0.25')

@@ -1,6 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
 import { join } from 'node:path'
-import { FIXTURES, importPaths, launchApp, pad, readOutput, type AppHandles } from './helpers'
+import {
+  FIXTURES,
+  importPaths,
+  launchApp,
+  pad,
+  readOutput,
+  showMoreSettings,
+  type AppHandles,
+} from './helpers'
 
 /**
  * Beat-synced triggering, with the clock locked at 120 BPM (audio off) so timing is exact.
@@ -45,6 +53,8 @@ async function setQuantize(q: string) {
 async function editPad(id: string) {
   await gridPad(id).click({ button: 'right' })
   await expect(h.control.getByTestId('pad-editor')).toContainText(`Pad ${id}`)
+  // Quantize, fades and tempo sync live under "More settings".
+  await showMoreSettings(h.control)
 }
 
 /** Wait for the next action matching `match` after `count` previous actions. */
@@ -187,12 +197,14 @@ test("'Retrigger' restarts the clip on every beat", async () => {
 })
 
 test('Shift+key arms a drop: countdown, then it fires on the bar', async () => {
-  await h.control.getByLabel('Drop timing').selectOption('2')
   await focusBody(h.control)
   const before = (await actions()).length
   await h.control.keyboard.down('Shift')
   await h.control.keyboard.press('Digit1')
   await h.control.keyboard.up('Shift')
+  // The timing lives in the drop banner; changing it retargets the armed drop.
+  await h.control.getByTestId('drop-banner').getByLabel('Drop timing').selectOption('2')
+  await focusBody(h.control)
   await expect(h.control.getByTestId('drop-banner')).toContainText(
     /DROP in [12] bars?|DROP in \d beats?/,
   )

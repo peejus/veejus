@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   BANK_NAMES,
   DROP_BAR_OPTIONS,
@@ -14,7 +14,8 @@ import {
   type Quantize,
   autoLayer,
 } from '@shared/pads'
-import type { LayerId } from '@shared/layers'
+import { LAYER_NAMES, type LayerId } from '@shared/layers'
+import { LAYER_COLORS } from './layerColors'
 import type { ClipInfo } from '@shared/protocol'
 import type { ProbeResult } from './probe'
 import type { BeatLink } from './useBeat'
@@ -22,20 +23,24 @@ import type { PadRef, PadsLink } from './usePads'
 
 export const CLIP_DRAG_TYPE = 'application/x-veejus-clip'
 
-const LAYER_SHORT: Record<LayerId, string> = {
-  background: 'BG',
-  overlayA: 'A',
-  overlayB: 'B',
-  takeover: 'TK',
+/** A small glyph per play mode; the tooltip spells it out. */
+function modeIcon(config: PadConfig): string {
+  switch (config.mode) {
+    case 'oneShot':
+      return '▶'
+    case 'beats':
+      return `⏱${config.lengthBeats}`
+    case 'hold':
+      return '✋'
+    case 'toggle':
+      return '⟳'
+    case 'retrigger':
+      return '↻'
+  }
 }
 
-const MODE_SHORT: Record<PadConfig['mode'], string> = {
-  oneShot: '1×',
-  beats: 'beats',
-  hold: 'hold',
-  toggle: 'loop',
-  retrigger: 'retrig',
-}
+const resolvedLayer = (config: PadConfig): LayerId =>
+  config.layer === 'auto' ? autoLayer(config.mode, false) : config.layer
 
 function sourceLabel(config: PadConfig, clips: Map<string, ClipInfo>): string {
   const s = config.source
@@ -60,6 +65,7 @@ const PadCell = memo(function PadCell(props: CellProps) {
   const [dragOver, setDragOver] = useState(false)
   const id = padId(pad.bank, pad.index)
   const empty = !config.source
+  const layer = resolvedLayer(config)
   return (
     <div
       className={`grid-pad state-${state}${empty ? ' empty' : ''}${selected ? ' selected' : ''}${
@@ -70,7 +76,15 @@ const PadCell = memo(function PadCell(props: CellProps) {
       data-state={state}
       role="button"
       aria-label={`Pad ${id}${label ? `: ${label}` : ''}`}
-      title={`${id} (key ${keyLabel})${label ? `\n${label}` : ''}\n${PLAY_MODE_LABELS[config.mode]}`}
+      title={
+        empty
+          ? `${id} · key ${keyLabel}\nEmpty: drag a library clip here, or right-click to choose one`
+          : `${id} · key ${keyLabel}\n${label}\n${PLAY_MODE_LABELS[config.mode]}${
+              config.mode === 'beats' ? ` (${config.lengthBeats} beats)` : ''
+            } on ${LAYER_NAMES[layer]}${config.layer === 'auto' ? ' (auto)' : ''}\n` +
+            'Click or key to fire · Shift to arm for the drop · right-click to edit'
+      }
+      style={empty ? undefined : ({ '--layer-color': LAYER_COLORS[layer] } as CSSProperties)}
       onPointerDown={(e) => {
         if (e.button !== 0) return
         e.preventDefault()
@@ -108,9 +122,9 @@ const PadCell = memo(function PadCell(props: CellProps) {
       {thumb && <img src={thumb} alt="" draggable={false} />}
       <span className="pad-key">{keyLabel}</span>
       {!empty && (
-        <span className="pad-mode">
-          {MODE_SHORT[config.mode]}·
-          {LAYER_SHORT[config.layer === 'auto' ? autoLayer(config.mode, false) : config.layer]}
+        <span className="pad-mode" aria-hidden="true">
+          {config.source?.kind === 'random' && <span title="Random clip">⚄ </span>}
+          {modeIcon(config)}
         </span>
       )}
       <span className="pad-label">{label}</span>
@@ -132,6 +146,8 @@ const PadCell = memo(function PadCell(props: CellProps) {
 function DropBanner({ pads }: { pads: PadsLink }) {
   const drop = pads.runtime?.drop
   if (!drop) return null
+  const s = pads.settings
+  const dropValue = s.drop.kind === 'phrase' ? 'phrase' : String(s.drop.bars)
   const text =
     drop.beatsRemaining >= 4
       ? `DROP in ${drop.barsRemaining} bar${drop.barsRemaining === 1 ? '' : 's'}`
@@ -140,6 +156,29 @@ function DropBanner({ pads }: { pads: PadsLink }) {
     <div className="drop-banner" data-testid="drop-banner">
       <span className="drop-text">{text}</span>
       <span className="drop-pads">{drop.padIds.join(' + ')}</span>
+      <label className="compact">
+        Lands
+        <select
+          aria-label="Drop timing"
+          title="When armed pads fire (changing it retargets this drop from now)"
+          value={dropValue}
+          onChange={(e) => {
+            const v = e.target.value
+            const next: DropTarget =
+              v === 'phrase'
+                ? { kind: 'phrase' }
+                : { kind: 'bars', bars: Number(v) as (typeof DROP_BAR_OPTIONS)[number] }
+            pads.setSettings({ ...s, drop: next })
+          }}
+        >
+          <option value="phrase">on the next phrase</option>
+          {DROP_BAR_OPTIONS.map((b) => (
+            <option key={b} value={b}>
+              in {b} bar{b === 1 ? '' : 's'}
+            </option>
+          ))}
+        </select>
+      </label>
       <button
         onClick={() => {
           for (const id of drop.padIds) {
@@ -159,9 +198,10 @@ interface Props {
   beat: BeatLink
   clips: ClipInfo[]
   probes: Record<string, ProbeResult>
+  onShowKeys(): void
 }
 
-export function PadGrid({ pads, beat, clips, probes }: Props) {
+export function PadGrid({ pads, beat, clips, probes, onShowKeys }: Props) {
   const gridRef = useRef<HTMLDivElement>(null)
   const clipMap = new Map(clips.map((c) => [c.id, c]))
   const { onBeat } = beat
@@ -180,7 +220,6 @@ export function PadGrid({ pads, beat, clips, probes }: Props) {
   }, [onBeat])
 
   const s = pads.settings
-  const dropValue = s.drop.kind === 'phrase' ? 'phrase' : String(s.drop.bars)
   return (
     <section className="panel pad-panel">
       <div className="pad-header">
@@ -209,28 +248,6 @@ export function PadGrid({ pads, beat, clips, probes }: Props) {
             {QUANTIZES.map((q) => (
               <option key={q} value={q}>
                 {QUANTIZE_LABELS[q]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="compact">
-          Drop
-          <select
-            aria-label="Drop timing"
-            value={dropValue}
-            onChange={(e) => {
-              const v = e.target.value
-              const drop: DropTarget =
-                v === 'phrase'
-                  ? { kind: 'phrase' }
-                  : { kind: 'bars', bars: Number(v) as (typeof DROP_BAR_OPTIONS)[number] }
-              pads.setSettings({ ...s, drop })
-            }}
-          >
-            <option value="phrase">Next phrase</option>
-            {DROP_BAR_OPTIONS.map((b) => (
-              <option key={b} value={b}>
-                In {b} bar{b === 1 ? '' : 's'}
               </option>
             ))}
           </select>
@@ -279,9 +296,11 @@ export function PadGrid({ pads, beat, clips, probes }: Props) {
         })}
       </div>
       <p className="hint key-hint">
-        <b>Pads</b> 1-8 · Q-I · A-K · Z-, &nbsp; <b>Arm drop</b> Shift+key &nbsp; <b>Banks</b> F1-F4
-        &nbsp; <b>Stop all</b> Esc &nbsp; <b>Tap</b> Space &nbsp; <b>Beat 1</b> Enter &nbsp;
-        <b>Nudge</b> ←/→ &nbsp; <b>Blackout</b> ` &nbsp; <b>Edit pad</b> right-click or ✎
+        <b>Fire</b> 1-8 · Q-I · A-K · Z-, &nbsp; <b>Arm drop</b> Shift+key &nbsp; <b>Stop all</b>{' '}
+        Esc &nbsp; <b>Edit</b> right-click &nbsp;
+        <button className="link" onClick={onShowKeys}>
+          All shortcuts (?)
+        </button>
       </p>
     </section>
   )

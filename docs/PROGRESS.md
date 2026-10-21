@@ -996,7 +996,7 @@ This is the first step of the UX plan in `docs/UX_REVIEW.md`, done before Phase 
 
 ---
 
-## UX-2: Layout restructure (completed 2026-10-20, awaiting approval)
+## UX-2: Layout restructure (completed and approved 2026-10-20)
 
 Step 2 of `docs/UX_REVIEW.md`: one screen for the show, and a drawer for setup.
 
@@ -1090,3 +1090,94 @@ Step 2 of `docs/UX_REVIEW.md`: one screen for the show, and a drawer for setup.
 - **The library is small at 1366×768:** one row of clips, and it scrolls. Larger windows give it more room. UX-5 adds search and filters to make finding clips faster than scrolling.
 - **The pad editor and effects lists are long** and scroll inside the context panel at laptop heights. UX-3 (Basic / Advanced pad settings) and UX-4 (modulation on the sliders) shorten them.
 - **Pad tiles still use the `1×·A` badges** (UX-3).
+
+**Approval notes (2026-10-20):** UX-2 approved as built.
+
+---
+
+## UX-3: Pads and context editing (completed 2026-10-20, awaiting approval)
+
+Step 3 of `docs/UX_REVIEW.md`.
+
+### What changed
+
+**Pad tiles read at a glance**
+
+- **Mode icons** replace the `1×·A` / `loop·BG` badges:
+
+  | Icon | Mode        |
+  | ---- | ----------- |
+  | ▶    | one-shot    |
+  | ⏱N   | for N beats |
+  | ✋   | while held  |
+  | ⟳    | toggle loop |
+  | ↻    | retrigger   |
+  | ⚄    | random clip |
+
+- **Layer stripe:** a colored left edge shows the layer the pad plays on. It's the same color as that layer's mixer strip:
+  - Background: blue
+  - Overlay A: orange
+  - Overlay B: cyan
+  - Takeover: purple
+- **Plain-words tooltip:** for example, "A6 · key 6 / photo.jpg / Retrigger on Takeover / Click or key to fire · Shift to arm for the drop · right-click to edit". Empty pads say how to fill them.
+
+**Pad editor: basics first**
+
+- **Header:** **Fire / Arm for drop / Clear** sit right under the pad's name, so they're always on screen.
+- **Basic:** clip (or a random clip from a folder), mode (plus length or restart rate), layer, and position (plus fit or size).
+- **More settings** (collapsed): quantize override, fades, tempo sync, offsets, rotation, entrance, keying.
+  - Its title lists what you've changed, in amber, for example "More settings · quantize Bar · fades · chroma key". Nothing hides silently.
+  - Open or closed, it stays the way you left it, across pads and restarts.
+
+**Keyboard sheet**
+
+- **Opening:** **?** opens a sheet listing every shortcut and mouse gesture, grouped into Pads, Tempo, Show and Mouse. A **?** button in the top bar and an **All shortcuts (?)** link under the pads open it too.
+- **Closing:** ?, Esc, ✕, or a click outside the sheet.
+  - While it's open, **Esc closes the sheet and does not stop the show**. Esc is still Stop all whenever the sheet is closed.
+  - The pad and tempo keys keep working with the sheet open.
+- **The line under the pads** is now short: fire, arm, stop all, edit, and the link to the sheet.
+
+**Drop timing lives in the drop banner**
+
+- The **Drop** menu left the pad toolbar, which now shows banks, quantize, Auto-fill and Stop all.
+- While something is armed, the **DROP in N bars** banner has a **Lands** menu: on the next phrase, or in 1–8 bars.
+- Changing it **retargets the armed drop from now**. Before, the target was fixed when you armed it, so the menu only affected the next drop. The choice is kept for later drops.
+
+### Test results
+
+- `npm run typecheck`, `npm run lint` and Prettier: clean.
+- `npm run test:unit`: **182 passing**. New: changing the drop timing while armed retargets the drop from now (it fires at the new bar, within half a frame). Changing only the quantize leaves a pending drop where it is.
+- `npm run test:e2e`: **91 passing**. New in `layout.spec.ts`:
+  - **Pad tiles:** the mode icon, the plain-words tooltip, the stripe color matching Overlay A's orange, and the empty-pad tooltip.
+  - **Pad editor:** the basics are visible, and quantize is hidden until **More settings** is opened. A changed quantize shows in the summary, and the open state carries over to the next pad.
+  - **Shortcut sheet:**
+    - **?** opens it.
+    - **Esc** closes it while a loop keeps playing.
+    - Esc with the sheet closed stops everything.
+    - The top-bar button and the "All shortcuts" link open it.
+  - **Drop timing:** absent while idle; shown in the banner once armed; changing it updates the countdown; Cancel clears it.
+- **Updated:** the pad tests open **More settings** before using quantize or tempo sync, and the drop test picks its timing in the banner after arming.
+- **Performance:** 1080p with effects is unchanged, at **60.0 fps** with 0 dropped frames.
+
+### Manual test script
+
+1. Run `npm run dev`, load clips, then **Auto-fill**.
+   - Set a few pads to different modes and layers.
+   - **Expected:** each tile shows its mode icon and a colored left edge matching the mixer strip of its layer. Hovering explains it in words.
+2. Right-click a pad.
+   - **Expected:** Fire / Arm / Clear and the basics are visible without scrolling.
+   - Open **More settings**, set a quantize, and see it listed in the summary.
+   - Right-click another pad: **More settings** is still open.
+3. Fire a loop, press **?**, then **Esc**. **Expected:** the sheet closes and the loop keeps playing. Press **Esc** again: everything stops.
+4. **Shift+click** a pad. **Expected:** the drop banner appears with **Lands: on the next phrase**. Switch it to **in 1 bar**: the countdown jumps, and the pad fires on the next bar.
+
+### Decisions and defaults
+
+- **"More settings" starts closed** on a fresh install, then remembers your choice.
+- **Mode icons are text glyphs**, not images, so they stay crisp at any size. The ✋ may look slightly different from the others because Windows draws it from its emoji font.
+- **Changing the drop timing applies to the pending drop** and to later ones. It counts from the moment you change it, not from when you armed the pad.
+
+### Known issues / limitations
+
+- **Tests share your app profile.** The end-to-end tests launch the app with the normal user-data folder. Settings stored in the window (for now, only the "More settings" open state) are shared between test runs and your own use. This predates UX-3, but it's the first time something is stored there. Giving tests their own profile is a small follow-up.
+- **Mouse users can't set the drop timing before arming.** It appears once something is armed: arm, then pick. Keyboard arming works the same way.

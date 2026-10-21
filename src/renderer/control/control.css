@@ -1598,3 +1598,130 @@ button.primary {
 .pad-header {
   margin-bottom: 8px;
 }
+
+/* ---- UX-3: pad tiles, pad editor sections, shortcut sheet, drop banner ---- */
+
+/* Layer color stripe on the left edge of assigned pads (inset so state borders still show). */
+.grid-pad:not(.empty)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--layer-color, transparent);
+  z-index: 1;
+}
+.pad-mode {
+  font-size: 12px;
+  line-height: 16px;
+  padding: 0 5px;
+  color: var(--text);
+}
+
+.pad-editor .editor-actions {
+  margin: 0 0 6px;
+}
+.sub-section.advanced {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.sub-section.advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.advanced-summary {
+  font-weight: 400;
+  color: #ffb31a;
+}
+
+.drop-banner .compact {
+  color: #fff;
+}
+.drop-banner select {
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* Keyboard shortcut sheet. */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+.sheet {
+  width: min(760px, calc(100vw - 40px));
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sheet-header h2 {
+  margin: 0;
+  flex: 1;
+}
+.sheet-header .close {
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+}
+.sheet-groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 28px;
+}
+.sheet-groups h3 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.sheet-groups dl {
+  margin: 0;
+}
+.sheet-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #26263200;
+}
+.sheet-row dt {
+  margin: 0;
+}
+.sheet-row dd {
+  margin: 0;
+}
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid #44445a;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #24242f;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+}
+.sheet-action {
+  font-weight: 600;
+}
+.sheet-row {
+  grid-template-columns: 170px 1fr;
+}

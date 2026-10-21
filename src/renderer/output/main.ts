@@ -334,7 +334,7 @@ bridge.onControlMessage((msg) => {
       sendTriggerState()
       break
     case 'setTriggerSettings':
-      scheduler.settings = { ...msg.settings }
+      scheduler.setSettings(msg.settings, performance.now(), beat.clock)
       sendTriggerState()
       break
     case 'setLayerSettings':

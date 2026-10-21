@@ -96,6 +96,83 @@ test('Setup holds audio, output, clock and diagnostics, out of the way', async (
   await closeSetup(h.control)
 })
 
+test('pad tiles show a mode icon, a layer stripe and a plain-words tooltip', async () => {
+  const a1 = h.control.locator('[data-pad="A1"]')
+  await expect(a1.locator('.pad-mode')).toHaveText('▶') // one-shot
+  await expect(a1).toHaveAttribute('title', /One-shot on Overlay A \(auto\)/)
+  await expect(a1).toHaveAttribute('title', /Shift to arm/)
+  const stripe = await a1.evaluate(
+    (el) =>
+      (
+        globalThis as unknown as {
+          getComputedStyle(e: unknown, p: string): { backgroundColor: string }
+        }
+      ).getComputedStyle(el, '::before').backgroundColor,
+  )
+  expect(stripe).toBe('rgb(255, 159, 26)') // Overlay A orange, as on its mixer strip
+  const empty = h.control.locator('[data-pad="A32"]')
+  await expect(empty).toHaveAttribute('title', /Empty: drag a library clip here/)
+})
+
+test('the pad editor keeps the basics up front and the rest under More settings', async () => {
+  await h.control.locator('[data-pad="A2"]').click({ button: 'right' })
+  const editor = context().getByTestId('pad-editor')
+  for (const label of ['Pad source', 'Pad mode', 'Pad layer', 'Position']) {
+    await expect(editor.getByLabel(label, { exact: true })).toBeVisible()
+  }
+  await expect(editor.getByRole('button', { name: 'Fire' })).toBeVisible()
+  const more = editor.getByTestId('pad-advanced')
+  if ((await more.getAttribute('open')) !== null) await more.locator('summary').first().click()
+  await expect(editor.getByLabel('Pad quantize')).toBeHidden()
+  await more.locator('summary').first().click()
+  await editor.getByLabel('Pad quantize').selectOption('bar')
+  await expect(more.locator('summary').first()).toContainText('quantize Bar')
+  // The open state is remembered for the next pad.
+  await h.control.locator('[data-pad="A3"]').click({ button: 'right' })
+  await expect(context().getByTestId('pad-advanced')).toHaveAttribute('open', '')
+  await expect(context().getByLabel('Pad quantize')).toBeVisible()
+})
+
+test('? opens the shortcut sheet; Esc closes it without stopping the show', async () => {
+  await h.control.locator('body').click({ position: { x: 5, y: 5 } })
+  // A loop playing on the Background.
+  await h.control.locator('[data-pad="A4"]').click({ button: 'right' })
+  await context().getByLabel('Pad mode').selectOption('toggle')
+  await h.control.locator('body').click({ position: { x: 5, y: 5 } })
+  await h.control.keyboard.press('Digit4')
+  await expect(h.control.locator('[data-pad="A4"]')).toHaveAttribute('data-state', 'playing')
+
+  await h.control.keyboard.press('?')
+  const sheet = h.control.getByRole('dialog', { name: 'Keyboard shortcuts' })
+  await expect(sheet).toBeVisible()
+  await expect(sheet).toContainText('Tap tempo')
+  await h.control.keyboard.press('Escape')
+  await expect(sheet).toBeHidden()
+  await expect(h.control.locator('[data-pad="A4"]')).toHaveAttribute('data-state', 'playing')
+  // With the sheet closed, Esc is Stop all again.
+  await h.control.keyboard.press('Escape')
+  await expect(h.control.locator('[data-pad="A4"]')).toHaveAttribute('data-state', 'idle')
+  // The top-bar button and the link under the pads open it too.
+  await h.control.getByRole('button', { name: 'Keyboard shortcuts' }).click()
+  await expect(sheet).toBeVisible()
+  await h.control.getByRole('button', { name: 'Close shortcuts' }).click()
+  await h.control.getByRole('button', { name: 'All shortcuts (?)' }).click()
+  await expect(sheet).toBeVisible()
+  await h.control.keyboard.press('?')
+  await expect(sheet).toBeHidden()
+})
+
+test('drop timing appears in the drop banner only while something is armed', async () => {
+  await expect(h.control.getByLabel('Drop timing')).toHaveCount(0)
+  await h.control.locator('[data-pad="A1"]').click({ modifiers: ['Shift'] })
+  const banner = h.control.getByTestId('drop-banner')
+  await expect(banner.getByLabel('Drop timing')).toHaveValue('phrase')
+  await banner.getByLabel('Drop timing').selectOption('1')
+  await expect(banner).toContainText(/DROP in (1 bar|\d beats?)/)
+  await banner.getByRole('button', { name: 'Cancel' }).click()
+  await expect(banner).toBeHidden()
+})
+
 test('pads, mixer, preview, beat and context all fit a 1366×768 laptop screen', async () => {
   await h.app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() !== 'Veejus Output')!

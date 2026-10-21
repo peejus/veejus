@@ -156,3 +156,10 @@ export async function closeSetup(control: Page) {
     await control.getByRole('button', { name: 'Close setup' }).click()
   }
 }
+
+/** Open the pad editor's "More settings" section if it is closed (it remembers its state). */
+export async function showMoreSettings(control: Page) {
+  const more = control.getByTestId('pad-advanced')
+  if ((await more.getAttribute('open')) === null) await more.locator('summary').first().click()
+  await expect(more).toHaveAttribute('open', '')
+}

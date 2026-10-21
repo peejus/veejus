@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   PAD_COLS,
   PAD_KEY_LABELS,
@@ -71,10 +72,10 @@ function Range(props: {
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
 
-function PlacementEditor({ p, set }: { p: Placement; set: (patch: Partial<Placement>) => void }) {
+/** Where the clip goes: the basic placement settings. */
+function PositionEditor({ p, set }: { p: Placement; set: (patch: Partial<Placement>) => void }) {
   return (
-    <details className="sub-section" open>
-      <summary>Placement</summary>
+    <>
       <label className="field">
         <span className="label">Position</span>
         <select
@@ -115,6 +116,14 @@ function PlacementEditor({ p, set }: { p: Placement; set: (patch: Partial<Placem
           onChange={(v) => set({ size: v })}
         />
       )}
+    </>
+  )
+}
+
+/** Fine placement and the entrance animation (advanced). */
+function MotionEditor({ p, set }: { p: Placement; set: (patch: Partial<Placement>) => void }) {
+  return (
+    <>
       <Range
         label="Offset X"
         min={-0.5}
@@ -169,7 +178,7 @@ function PlacementEditor({ p, set }: { p: Placement; set: (patch: Partial<Placem
           </select>
         )}
       </label>
-    </details>
+    </>
   )
 }
 
@@ -300,20 +309,70 @@ function folders(clips: ClipInfo[]): string[] {
   return [...set].sort()
 }
 
+const ADVANCED_KEY = 'veejus.padEditor.advancedOpen'
+
+/** Whether "More settings" is open; remembered across pads and restarts. */
+function useAdvancedOpen(): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(ADVANCED_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const set = (v: boolean) => {
+    setOpen(v)
+    try {
+      localStorage.setItem(ADVANCED_KEY, v ? '1' : '0')
+    } catch {
+      // Storage may be unavailable; the setting just isn't remembered.
+    }
+  }
+  return [open, set]
+}
+
+/** Short list of the advanced settings that differ from the defaults, for the summary line. */
+function advancedSummary(config: PadConfig): string {
+  const parts: string[] = []
+  if (config.quantize !== 'global') parts.push(`quantize ${QUANTIZE_LABELS[config.quantize]}`)
+  if (config.fadeInBeats > 0 || config.fadeOutBeats > 0) parts.push('fades')
+  if (config.syncBeats !== null) parts.push('tempo sync')
+  const p = config.placement
+  if (p.offsetX !== 0 || p.offsetY !== 0 || p.rotationDeg !== 0) parts.push('moved')
+  if (p.entrance !== 'none') parts.push(ENTRANCE_LABELS[p.entrance].split(' ')[0]!.toLowerCase())
+  if (config.key.mode !== 'none') parts.push(config.key.mode === 'luma' ? 'luma key' : 'chroma key')
+  return parts.join(' · ')
+}
+
 export function PadEditor({ pads, clips }: { pads: PadsLink; clips: ClipInfo[] }) {
+  const [advancedOpen, setAdvancedOpen] = useAdvancedOpen()
   const sel = pads.selected
   if (!sel) return null
   const config = pads.banks[sel.bank]![sel.index]!
   const set = (patch: Partial<PadConfig>) => pads.update(sel, patch)
+  const setPlacement = (patch: Partial<Placement>) =>
+    set({ placement: { ...config.placement, ...patch } })
   const id = padId(sel.bank, sel.index)
   const key = PAD_KEY_LABELS[Math.floor(sel.index / PAD_COLS)]![sel.index % PAD_COLS]
   const globalQ = QUANTIZE_LABELS[pads.settings.quantize]
+  const changed = advancedSummary(config)
 
   return (
     <div className="pad-editor" data-testid="pad-editor">
       <h2>
         Pad {id} <span className="muted">(key {key})</span>
       </h2>
+      <div className="row editor-actions">
+        <button onClick={() => pads.press(sel)} disabled={!config.source}>
+          Fire
+        </button>
+        <button onClick={() => pads.arm(sel)} disabled={!config.source}>
+          Arm for drop
+        </button>
+        <button className="subtle" onClick={() => pads.assign(sel, null)} disabled={!config.source}>
+          Clear
+        </button>
+      </div>
 
       <label className="field">
         <span className="label">Plays</span>
@@ -388,64 +447,6 @@ export function PadEditor({ pads, clips }: { pads: PadsLink; clips: ClipInfo[] }
       )}
 
       <label className="field">
-        <span className="label">Quantize</span>
-        <select
-          aria-label="Pad quantize"
-          value={config.quantize}
-          onChange={(e) => set({ quantize: e.target.value as Quantize | 'global' })}
-        >
-          <option value="global">Global ({globalQ})</option>
-          {QUANTIZES.map((q) => (
-            <option key={q} value={q}>
-              {QUANTIZE_LABELS[q]}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <div className="field">
-        <span className="label">Fade in / out</span>
-        <select
-          aria-label="Fade in"
-          value={config.fadeInBeats}
-          onChange={(e) => set({ fadeInBeats: Number(e.target.value) })}
-        >
-          {FADE_CHOICES.map((b) => (
-            <option key={b} value={b}>
-              {b === 0 ? 'none' : `${b} beat${b === 1 ? '' : 's'}`}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Fade out"
-          value={config.fadeOutBeats}
-          onChange={(e) => set({ fadeOutBeats: Number(e.target.value) })}
-        >
-          {FADE_CHOICES.map((b) => (
-            <option key={b} value={b}>
-              {b === 0 ? 'none' : `${b} beat${b === 1 ? '' : 's'}`}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <label className="field">
-        <span className="label">Tempo sync</span>
-        <select
-          aria-label="Tempo sync"
-          value={config.syncBeats ?? ''}
-          onChange={(e) => set({ syncBeats: e.target.value ? Number(e.target.value) : null })}
-        >
-          <option value="">Off (normal speed)</option>
-          {BEAT_CHOICES.map((b) => (
-            <option key={b} value={b}>
-              Stretch to {beatsLabel(b)}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="field">
         <span className="label">Layer</span>
         <select
           aria-label="Pad layer"
@@ -455,31 +456,88 @@ export function PadEditor({ pads, clips }: { pads: PadsLink; clips: ClipInfo[] }
           <option value="auto">
             Auto ({LAYER_NAMES[autoLayer(config.mode, false)]}; drops: Takeover)
           </option>
-          {LAYER_IDS.map((id) => (
-            <option key={id} value={id}>
-              {LAYER_NAMES[id]}
+          {LAYER_IDS.map((lid) => (
+            <option key={lid} value={lid}>
+              {LAYER_NAMES[lid]}
             </option>
           ))}
         </select>
       </label>
 
-      <PlacementEditor
-        p={config.placement}
-        set={(patch) => set({ placement: { ...config.placement, ...patch } })}
-      />
-      <KeyEditor k={config.key} set={(patch) => set({ key: { ...config.key, ...patch } })} />
+      <PositionEditor p={config.placement} set={setPlacement} />
 
-      <div className="row editor-actions">
-        <button onClick={() => pads.press(sel)} disabled={!config.source}>
-          Fire
-        </button>
-        <button onClick={() => pads.arm(sel)} disabled={!config.source}>
-          Arm for drop
-        </button>
-        <button className="subtle" onClick={() => pads.assign(sel, null)} disabled={!config.source}>
-          Clear
-        </button>
-      </div>
+      <details
+        className="sub-section advanced"
+        data-testid="pad-advanced"
+        open={advancedOpen}
+        onToggle={(e) => setAdvancedOpen((e.currentTarget as HTMLDetailsElement).open)}
+      >
+        <summary>
+          More settings
+          {changed && <span className="advanced-summary"> · {changed}</span>}
+        </summary>
+
+        <label className="field">
+          <span className="label">Quantize</span>
+          <select
+            aria-label="Pad quantize"
+            value={config.quantize}
+            onChange={(e) => set({ quantize: e.target.value as Quantize | 'global' })}
+          >
+            <option value="global">Global ({globalQ})</option>
+            {QUANTIZES.map((q) => (
+              <option key={q} value={q}>
+                {QUANTIZE_LABELS[q]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="field">
+          <span className="label">Fade in / out</span>
+          <select
+            aria-label="Fade in"
+            value={config.fadeInBeats}
+            onChange={(e) => set({ fadeInBeats: Number(e.target.value) })}
+          >
+            {FADE_CHOICES.map((b) => (
+              <option key={b} value={b}>
+                {b === 0 ? 'none' : `${b} beat${b === 1 ? '' : 's'}`}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Fade out"
+            value={config.fadeOutBeats}
+            onChange={(e) => set({ fadeOutBeats: Number(e.target.value) })}
+          >
+            {FADE_CHOICES.map((b) => (
+              <option key={b} value={b}>
+                {b === 0 ? 'none' : `${b} beat${b === 1 ? '' : 's'}`}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <label className="field">
+          <span className="label">Tempo sync</span>
+          <select
+            aria-label="Tempo sync"
+            value={config.syncBeats ?? ''}
+            onChange={(e) => set({ syncBeats: e.target.value ? Number(e.target.value) : null })}
+          >
+            <option value="">Off (normal speed)</option>
+            {BEAT_CHOICES.map((b) => (
+              <option key={b} value={b}>
+                Stretch to {beatsLabel(b)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <MotionEditor p={config.placement} set={setPlacement} />
+        <KeyEditor k={config.key} set={(patch) => set({ key: { ...config.key, ...patch } })} />
+      </details>
     </div>
   )
 }

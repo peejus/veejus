@@ -177,14 +177,27 @@ export class TriggerScheduler {
     const clipId = this.choose(padId, spec.source)
     if (!clipId) return
     this.armed.set(padId, { spec, clipId })
-    if (this.dropPos === null) {
-      const pos = clock.position(nowMs) + 1e-6
-      const drop = this.settings.drop
-      this.dropPos =
-        drop.kind === 'phrase'
-          ? clock.boundaryAfter(pos, 'phrase')
-          : clock.boundaryAfter(pos, 'bar') + (drop.bars - 1) * BEATS_PER_BAR
-    }
+    if (this.dropPos === null) this.dropPos = this.dropTarget(nowMs, clock)
+    this.changed()
+  }
+
+  /** Where a drop armed now would land, per the drop setting. */
+  private dropTarget(nowMs: number, clock: ClockView): number {
+    const pos = clock.position(nowMs) + 1e-6
+    const drop = this.settings.drop
+    return drop.kind === 'phrase'
+      ? clock.boundaryAfter(pos, 'phrase')
+      : clock.boundaryAfter(pos, 'bar') + (drop.bars - 1) * BEATS_PER_BAR
+  }
+
+  /**
+   * Change the settings. If a drop is pending and its timing changed, it is retargeted from
+   * now, so the timing can be picked after arming.
+   */
+  setSettings(settings: TriggerSettings, nowMs: number, clock: ClockView): void {
+    const dropChanged = JSON.stringify(settings.drop) !== JSON.stringify(this.settings.drop)
+    this.settings = { ...settings }
+    if (dropChanged && this.dropPos !== null) this.dropPos = this.dropTarget(nowMs, clock)
     this.changed()
   }
 

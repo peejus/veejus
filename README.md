@@ -62,9 +62,11 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 - **Pads:**
   - **Load:** drag library clips onto the 4×8 pad grid (4 banks), or click **Auto-fill**.
   - **Fire:** keys `1–8`, `Q–I`, `A–K`, `Z–,` fire pads on the next beat, bar or phrase (global **Quantize**, with a per-pad override).
-  - **Edit:** right-click a pad (or hover it and press ✎) to edit it in the context panel: play mode (one-shot, for N beats, while held, toggle loop, retrigger), fades, tempo sync, or a random clip from a folder.
-  - **Drop:** **Shift+key** arms a pad; the **DROP in N bars** banner counts down to the next phrase.
+  - **Read a pad at a glance:** the corner icon is its mode (▶ one-shot, ⏱N for N beats, ✋ while held, ⟳ toggle loop, ↻ retrigger, ⚄ random clip). The colored left edge is the layer it plays on, in the same color as that layer's mixer strip. Hover for the details in words.
+  - **Edit:** right-click a pad (or hover it and press ✎) to edit it in the context panel. The basics are up front: clip (or a random clip from a folder), play mode, layer, position. **More settings** holds quantize, fades, tempo sync, offsets, rotation, entrance and keying, and its title lists any you've changed.
+  - **Drop:** **Shift+key** (or Shift+click) arms a pad. The **DROP in N bars** banner counts down, and its **Lands** menu picks when: next phrase, or in 1–8 bars. Changing it retargets the armed drop.
   - **Banks and stop:** **F1–F4** switch banks; **Esc** stops everything.
+  - **All shortcuts:** press **?** (or the **?** button in the top bar) for the keyboard sheet. While it's open, Esc closes the sheet instead of stopping the show.
 - **Layers (the mixer):**
   - **The four layers:** Background, Overlay A, Overlay B and Takeover. Each has opacity, a blend mode (normal, add, screen, multiply, difference), mute (M), solo (S) and stop (■).
   - **Where pads play:** a pad picks its layer itself (**Auto**: loops to Background, quick hits to the overlays, drops to Takeover), or you can choose one in the pad editor.

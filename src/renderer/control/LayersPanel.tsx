@@ -5,12 +5,12 @@ import {
   LAYER_NAMES,
   TAKEOVER_MODES,
   type BlendMode,
-  type LayerId,
   type TakeoverMode,
 } from '@shared/layers'
 import type { FxScope } from '@shared/fx'
 import type { ClipInfo } from '@shared/protocol'
 import { chainActive } from './FxPanel'
+import { LAYER_COLORS } from './layerColors'
 import type { FxLink } from './useFx'
 import type { LayersLink } from './useLayers'
 
@@ -67,14 +67,6 @@ export function PreviewMonitor({ layers }: { layers: LayersLink }) {
       />
     </section>
   )
-}
-
-/** One color per layer, used wherever a layer is shown. */
-export const LAYER_COLORS: Record<LayerId, string> = {
-  background: '#4f8cff',
-  overlayA: '#ff9f1a',
-  overlayB: '#2bd6ff',
-  takeover: '#b46bff',
 }
 
 interface MixerProps {

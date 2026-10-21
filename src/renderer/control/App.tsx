@@ -15,6 +15,7 @@ import { bridge, request } from './bridge'
 import { LibraryPanel } from './LibraryPanel'
 import { ClipInspector } from './PlaybackPanel'
 import { SetupDrawer, type SetupTab } from './SetupDrawer'
+import { ShortcutSheet, useShortcutSheet } from './ShortcutSheet'
 import { useAudio } from './useAudio'
 import { useBeat, useBeatShortcuts } from './useBeat'
 import { useLibrary } from './useLibrary'
@@ -29,6 +30,8 @@ export function App() {
   const library = useLibrary()
   const audio = useAudio()
   const beat = useBeat()
+  // First, so Esc can close the sheet without reaching "Stop all".
+  const keys = useShortcutSheet()
   useBeatShortcuts(beat.command, NUDGE_MS)
   const pads = usePads()
   usePadShortcuts(pads)
@@ -200,6 +203,14 @@ export function App() {
           {stats ? `${stats.fps.toFixed(0)} fps` : '-- fps'}
         </span>
         <button
+          className="subtle"
+          aria-label="Keyboard shortcuts"
+          title="Keyboard shortcuts (?)"
+          onClick={() => keys.setOpen(!keys.open)}
+        >
+          ?
+        </button>
+        <button
           className={`setup-button${setupOpen ? ' on' : ''}`}
           aria-label="Setup"
           aria-pressed={setupOpen}
@@ -212,7 +223,13 @@ export function App() {
 
       <div className="workspace">
         <main className="main-area">
-          <PadGrid pads={pads} beat={beat} clips={library.clips} probes={library.probes} />
+          <PadGrid
+            pads={pads}
+            beat={beat}
+            clips={library.clips}
+            probes={library.probes}
+            onShowKeys={() => keys.setOpen(true)}
+          />
           <Mixer
             layers={layers}
             fx={fx}
@@ -291,6 +308,7 @@ export function App() {
         />
       </div>
 
+      {keys.open && <ShortcutSheet onClose={() => keys.setOpen(false)} />}
       {error && (
         <div className="error-banner" role="alert">
           {error}
