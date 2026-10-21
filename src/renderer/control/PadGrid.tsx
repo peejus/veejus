@@ -52,12 +52,11 @@ interface CellProps {
   thumb: string | null
   state: PadRunState
   selected: boolean
-  editing: boolean
   pads: PadsLink
 }
 
 const PadCell = memo(function PadCell(props: CellProps) {
-  const { pad, config, keyLabel, label, thumb, state, selected, editing, pads } = props
+  const { pad, config, keyLabel, label, thumb, state, selected, pads } = props
   const [dragOver, setDragOver] = useState(false)
   const id = padId(pad.bank, pad.index)
   const empty = !config.source
@@ -75,8 +74,7 @@ const PadCell = memo(function PadCell(props: CellProps) {
       onPointerDown={(e) => {
         if (e.button !== 0) return
         e.preventDefault()
-        if (editing) pads.select(pad)
-        else if (e.shiftKey) pads.arm(pad)
+        if (e.shiftKey) pads.arm(pad)
         else {
           pads.press(pad)
           // Release wherever the pointer goes up (matters for 'hold').
@@ -116,6 +114,16 @@ const PadCell = memo(function PadCell(props: CellProps) {
         </span>
       )}
       <span className="pad-label">{label}</span>
+      <button
+        className="pad-edit"
+        aria-label={`Edit pad ${id}`}
+        title="Edit this pad (or right-click it)"
+        // Keep the pointer from firing the pad underneath.
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={() => pads.select(pad)}
+      >
+        ✎
+      </button>
     </div>
   )
 })
@@ -154,7 +162,6 @@ interface Props {
 }
 
 export function PadGrid({ pads, beat, clips, probes }: Props) {
-  const [editing, setEditing] = useState(false)
   const gridRef = useRef<HTMLDivElement>(null)
   const clipMap = new Map(clips.map((c) => [c.id, c]))
   const { onBeat } = beat
@@ -229,15 +236,6 @@ export function PadGrid({ pads, beat, clips, probes }: Props) {
           </select>
         </label>
         <button
-          className={editing ? 'on' : ''}
-          aria-pressed={editing}
-          data-testid="edit-toggle"
-          onClick={() => setEditing(!editing)}
-          title="Edit mode: clicking a pad selects it instead of firing it"
-        >
-          {editing ? 'Done editing' : 'Edit pads'}
-        </button>
-        <button
           className="subtle"
           title="Put library clips on this bank's empty and existing pads, in order"
           onClick={() =>
@@ -254,7 +252,7 @@ export function PadGrid({ pads, beat, clips, probes }: Props) {
       </div>
       <DropBanner pads={pads} />
       <div
-        className={`pad-grid-perf${editing ? ' editing' : ''}`}
+        className="pad-grid-perf"
         ref={gridRef}
         style={{ gridTemplateColumns: `repeat(${PAD_COLS}, minmax(0, 1fr))` }}
       >
@@ -275,15 +273,15 @@ export function PadGrid({ pads, beat, clips, probes }: Props) {
               thumb={probe?.ok ? probe.meta.thumbUrl : null}
               state={pads.runtime?.pads[id]?.state ?? 'idle'}
               selected={pads.selected?.bank === pad.bank && pads.selected.index === index}
-              editing={editing}
               pads={pads}
             />
           )
         })}
       </div>
-      <p className="hint">
-        Keys 1-8 / Q-I / A-K / Z-, fire pads · Shift+key or Shift+click arms for the drop · F1-F4
-        banks · Esc stops all · drag library clips onto pads · right-click a pad to edit it
+      <p className="hint key-hint">
+        <b>Pads</b> 1-8 · Q-I · A-K · Z-, &nbsp; <b>Arm drop</b> Shift+key &nbsp; <b>Banks</b> F1-F4
+        &nbsp; <b>Stop all</b> Esc &nbsp; <b>Tap</b> Space &nbsp; <b>Beat 1</b> Enter &nbsp;
+        <b>Nudge</b> ←/→ &nbsp; <b>Blackout</b> ` &nbsp; <b>Edit pad</b> right-click or ✎
       </p>
     </section>
   )

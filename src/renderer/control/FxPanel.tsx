@@ -7,7 +7,6 @@ import {
   EFFECT_TYPES,
   ENV_TRIGGERS,
   ENV_TRIGGER_LABELS,
-  FX_SCOPES,
   LFO_PERIODS,
   LFO_SHAPES,
   PRESET_IDS,
@@ -24,13 +23,11 @@ import {
 } from '@shared/fx'
 import type { FxLink } from './useFx'
 
-const SCOPE_NAMES: Record<FxScope, string> = { ...LAYER_NAMES, master: 'Master' }
-const SHORT: Record<FxScope, string> = {
-  background: 'BG',
-  overlayA: 'A',
-  overlayB: 'B',
-  takeover: 'TO',
-  master: 'Master',
+export const SCOPE_NAMES: Record<FxScope, string> = { ...LAYER_NAMES, master: 'Master' }
+
+/** Whether a chain has anything switched on (for the mixer's FX dot). */
+export function chainActive(chain: FxChain): boolean {
+  return chain.effects.some((e) => e.enabled) || chain.mods.some((m) => m.enabled)
 }
 
 /** "Strobe / flash 2" style names, numbered when a chain has several of one type. */
@@ -68,35 +65,17 @@ const limit = (v: number) => Math.max(-1000, Math.min(1000, v))
 const fmt = (v: number, step: number) =>
   step >= 1 ? String(Math.round(v)) : v.toFixed(step >= 0.01 ? 2 : 3)
 
-export function FxPanel({ fx }: { fx: FxLink }) {
-  const [scope, setScope] = useState<FxScope>('overlayA')
+/** The effects and modulators of one layer (or the master), shown in the context panel. */
+export function FxPanel({ fx, scope }: { fx: FxLink; scope: FxScope }) {
   const [adding, setAdding] = useState<EffectType>('strobe')
   const chain = fx.config[scope]
   const names = effectNames(chain)
   const targets = targetOptions(chain, scope)
-  const count = (s: FxScope) => fx.config[s].effects.length + fx.config[s].mods.length
+  const count = chain.effects.length + chain.mods.length
 
   return (
-    <section className="panel fx-panel">
-      <h2>Effects &amp; modulation</h2>
-      <div className="segmented fx-scopes" role="tablist" aria-label="Effects scope">
-        {FX_SCOPES.map((s) => (
-          <button
-            key={s}
-            role="tab"
-            aria-selected={scope === s}
-            className={scope === s ? 'on' : ''}
-            title={SCOPE_NAMES[s]}
-            aria-label={`${SCOPE_NAMES[s]} effects`}
-            onClick={() => setScope(s)}
-          >
-            {SHORT[s]}
-            {count(s) > 0 && <span className="fx-count">{count(s)}</span>}
-          </button>
-        ))}
-      </div>
-      <p className="hint">{SCOPE_NAMES[scope]}</p>
-
+    <div className="fx-panel" data-testid={`fx-panel-${scope}`}>
+      <h2>Effects · {SCOPE_NAMES[scope]}</h2>
       <div className="fx-presets">
         {PRESET_IDS.map((id) => {
           const on = fx.presetActive(scope, id)
@@ -159,13 +138,13 @@ export function FxPanel({ fx }: { fx: FxLink }) {
       ))}
       <div className="fx-add">
         <button onClick={() => fx.addModulator(scope, targets[0]![0])}>Add modulator</button>
-        {count(scope) > 0 && (
+        {count > 0 && (
           <button className="compact" onClick={() => fx.clear(scope)}>
             Clear all
           </button>
         )}
       </div>
-    </section>
+    </div>
   )
 }
 

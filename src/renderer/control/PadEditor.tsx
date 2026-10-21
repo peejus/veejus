@@ -302,16 +302,7 @@ function folders(clips: ClipInfo[]): string[] {
 
 export function PadEditor({ pads, clips }: { pads: PadsLink; clips: ClipInfo[] }) {
   const sel = pads.selected
-  if (!sel) {
-    return (
-      <section className="panel">
-        <h2>Pad</h2>
-        <p className="hint">
-          Right-click a pad (or use Edit pads) to set its clip, play mode, quantize and fades.
-        </p>
-      </section>
-    )
-  }
+  if (!sel) return null
   const config = pads.banks[sel.bank]![sel.index]!
   const set = (patch: Partial<PadConfig>) => pads.update(sel, patch)
   const id = padId(sel.bank, sel.index)
@@ -319,7 +310,7 @@ export function PadEditor({ pads, clips }: { pads: PadsLink; clips: ClipInfo[] }
   const globalQ = QUANTIZE_LABELS[pads.settings.quantize]
 
   return (
-    <section className="panel pad-editor" data-testid="pad-editor">
+    <div className="pad-editor" data-testid="pad-editor">
       <h2>
         Pad {id} <span className="muted">(key {key})</span>
       </h2>
@@ -489,6 +480,6 @@ export function PadEditor({ pads, clips }: { pads: PadsLink; clips: ClipInfo[] }
           Clear
         </button>
       </div>
-    </section>
+    </div>
   )
 }

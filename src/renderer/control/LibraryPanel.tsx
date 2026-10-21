@@ -76,7 +76,7 @@ const Pad = memo(function Pad({
         e.dataTransfer.setData(CLIP_DRAG_TYPE, clip.id)
         e.dataTransfer.effectAllowed = 'copy'
       }}
-      title={`${clip.name}\n${error ?? STATE_LABEL[state]}`}
+      title={`${clip.name}\n${error ?? `${STATE_LABEL[state]}\nClick to select · double-click to play now · drag onto a pad`}`}
       // A click only selects: browsing the library never changes the show by accident.
       // (Enter and Space stay with the global tempo shortcuts: beat 1 and tap.)
       onClick={() => onSelect(clip.id)}
@@ -137,19 +137,20 @@ const Pad = memo(function Pad({
 interface Props {
   library: LibraryState
   onPlay(id: string): void
+  selectedId: string | null
+  onSelect(id: string | null): void
 }
 
-export function LibraryPanel({ library, onPlay }: Props) {
+export function LibraryPanel({ library, onPlay, selectedId, onSelect }: Props) {
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   /** Paths removed by the last Clear, offered for undo for a few seconds. */
   const [undo, setUndo] = useState<{ paths: string[]; count: number } | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { remove } = library
   const removeOne = useCallback((id: string) => remove([id]), [remove])
-  const select = useCallback((id: string) => setSelectedId(id), [])
+  const select = useCallback((id: string) => onSelect(id), [onSelect])
 
   useEffect(
     () => () => {
@@ -162,7 +163,7 @@ export function LibraryPanel({ library, onPlay }: Props) {
     const paths = library.clips.map((c) => c.path)
     remove(library.clips.map((c) => c.id))
     setConfirmClear(false)
-    setSelectedId(null)
+    onSelect(null)
     setUndo({ paths, count: paths.length })
     if (undoTimer.current) clearTimeout(undoTimer.current)
     undoTimer.current = setTimeout(() => setUndo(null), UNDO_MS)
@@ -210,7 +211,7 @@ export function LibraryPanel({ library, onPlay }: Props) {
       onDrop={onDrop}
     >
       <div className="library-header">
-        <h2>
+        <h2 title="Click a clip to select it, double-click to play it now on the Background, drag it onto a pad to assign it">
           Library{' '}
           <span className="count" data-testid="clip-count">
             {clips.length}
@@ -254,12 +255,6 @@ export function LibraryPanel({ library, onPlay }: Props) {
           </span>
           <button onClick={undoClear}>Undo</button>
         </div>
-      )}
-      {clips.length > 0 && (
-        <p className="hint library-hint">
-          Click to select · double-click or ▶ Play to show it on the Background now · drag onto a
-          pad to assign
-        </p>
       )}
       {notice && (
         <p className="notice" data-testid="import-notice" onClick={() => setNotice(null)}>

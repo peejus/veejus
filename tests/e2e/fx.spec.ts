@@ -234,7 +234,7 @@ test('Kick Bump (from the panel) bumps the clip on each detected kick', async ()
   await fire('R', 'solid-red.png', 'overlayA', { anchor: 'center', size: 0.4 })
   const baseH = (await readOutput(h.output)).layers.overlayA.transform!.h
 
-  await h.control.getByRole('tab', { name: 'Overlay A effects' }).click()
+  await h.control.getByRole('button', { name: 'Overlay A effects' }).click()
   await h.control.getByRole('button', { name: 'Kick Bump' }).click()
   await expect(h.control.getByRole('button', { name: 'Kick Bump' })).toHaveAttribute(
     'aria-pressed',
@@ -273,7 +273,7 @@ test('Kick Bump (from the panel) bumps the clip on each detected kick', async ()
 test('the panel adds effects and modulators that reach the output', async () => {
   await reset()
   await grayWithRedSquare()
-  await h.control.getByRole('tab', { name: 'Master effects' }).click()
+  await h.control.getByRole('button', { name: 'Master effects' }).click()
   await h.control.getByLabel('Effect to add').selectOption('invert')
   await h.control.getByRole('button', { name: 'Add effect' }).click()
   await expect(h.control.getByTestId('effect-invert')).toBeVisible()
@@ -288,5 +288,5 @@ test('the panel adds effects and modulators that reach the output', async () => 
   await h.control.getByRole('button', { name: 'Remove Invert' }).click()
   // Its modulator goes with it.
   await expect(h.control.getByTestId('mod-1')).toHaveCount(0)
-  await h.control.getByRole('tab', { name: 'Overlay A effects' }).click()
+  await h.control.getByRole('button', { name: 'Overlay A effects' }).click()
 })

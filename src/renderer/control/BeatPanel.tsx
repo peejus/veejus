@@ -94,32 +94,17 @@ function BpmEntry({ beat }: { beat: BeatLink }) {
   )
 }
 
-/** Bring the audio input picker into view and focus it. */
-function goToAudioInput(): void {
-  const panel = document.getElementById('audio-panel')
-  panel?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  panel?.querySelector<HTMLSelectElement>('select')?.focus({ preventScroll: true })
+interface BeatPanelProps {
+  beat: BeatLink
+  audioState: AudioEngineState
+  /** Open Setup at the audio input. */
+  onAudioSetup(): void
 }
 
-export function BeatPanel({ beat, audioState }: { beat: BeatLink; audioState: AudioEngineState }) {
+export function BeatPanel({ beat, audioState, onAudioSetup }: BeatPanelProps) {
   const s = beat.state
   const settings = s?.settings
   const locked = settings?.tempoMode === 'locked'
-  const [phaseCorrection, setPhaseCorrection] = useMirrored(settings?.phaseCorrection ?? true)
-  const [latency, setLatency] = useMirrored(settings?.latencyOffsetMs ?? 0)
-  const [phraseBars, setPhraseBars] = useMirrored<number>(settings?.phraseBars ?? 8)
-  const [rangeMin, setRangeMin] = useState<string | null>(null)
-  const [rangeMax, setRangeMax] = useState<string | null>(null)
-
-  const commitRange = () => {
-    if (!settings) return
-    const min = Number(rangeMin ?? settings.minBpm)
-    const max = Number(rangeMax ?? settings.maxBpm)
-    if (isValidTempoRange(min, max))
-      beat.command({ type: 'setTempoRange', minBpm: min, maxBpm: max })
-    setRangeMin(null)
-    setRangeMax(null)
-  }
 
   return (
     <section className="panel beat-panel">
@@ -143,7 +128,7 @@ export function BeatPanel({ beat, audioState }: { beat: BeatLink; audioState: Au
               className="link no-audio"
               data-testid="no-audio"
               title="Beat detection needs an audio input"
-              onClick={goToAudioInput}
+              onClick={onAudioSetup}
             >
               {audioState === 'starting'
                 ? 'Starting audio…'
@@ -233,87 +218,106 @@ export function BeatPanel({ beat, audioState }: { beat: BeatLink; audioState: Au
         </button>
         <BpmEntry beat={beat} />
       </div>
-      <p className="hint">Space tap · Enter marks beat 1 · ←/→ nudge {NUDGE_MS} ms</p>
-
-      {settings && (
-        <details className="beat-settings">
-          <summary>Clock settings</summary>
-          <label className="field check">
-            <input
-              type="checkbox"
-              aria-label="Phase correction"
-              checked={phaseCorrection}
-              onChange={(e) => {
-                setPhaseCorrection(e.target.checked)
-                beat.command({ type: 'setPhaseCorrection', enabled: e.target.checked })
-              }}
-            />
-            Phase correction (follow the kicks)
-          </label>
-          <label className="field">
-            <span className="label">Latency offset</span>
-            <input
-              type="range"
-              aria-label="Latency offset"
-              min={LATENCY_OFFSET_RANGE_MS[0]}
-              max={LATENCY_OFFSET_RANGE_MS[1]}
-              step={5}
-              value={latency}
-              onChange={(e) => {
-                setLatency(Number(e.target.value))
-                beat.command({ type: 'setLatencyOffset', ms: Number(e.target.value) })
-              }}
-            />
-            <code className="slider-value">
-              {latency > 0 ? '+' : ''}
-              {latency} ms
-            </code>
-          </label>
-          <p className="hint">
-            Positive = visuals earlier. Raise it if flashes land after the kick you hear.
-          </p>
-          <label className="field">
-            <span className="label">Phrase length</span>
-            <select
-              aria-label="Phrase length"
-              value={phraseBars}
-              onChange={(e) => {
-                setPhraseBars(Number(e.target.value))
-                beat.command({ type: 'setPhraseBars', bars: Number(e.target.value) as PhraseBars })
-              }}
-            >
-              {PHRASE_BAR_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n} bars
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="field">
-            <span className="label">Tempo range</span>
-            <input
-              className="range-input"
-              type="number"
-              aria-label="Minimum BPM"
-              value={rangeMin ?? settings.minBpm}
-              onChange={(e) => setRangeMin(e.target.value)}
-              onBlur={commitRange}
-              onKeyDown={(e) => e.key === 'Enter' && commitRange()}
-            />
-            <span>–</span>
-            <input
-              className="range-input"
-              type="number"
-              aria-label="Maximum BPM"
-              value={rangeMax ?? settings.maxBpm}
-              onChange={(e) => setRangeMax(e.target.value)}
-              onBlur={commitRange}
-              onKeyDown={(e) => e.key === 'Enter' && commitRange()}
-            />
-            <span className="hint">BPM (≥ 1 octave)</span>
-          </div>
-        </details>
-      )}
     </section>
+  )
+}
+
+/** Clock settings (shown in Setup → Clock). */
+export function ClockSettings({ beat }: { beat: BeatLink }) {
+  const settings = beat.state?.settings
+  const [phaseCorrection, setPhaseCorrection] = useMirrored(settings?.phaseCorrection ?? true)
+  const [latency, setLatency] = useMirrored(settings?.latencyOffsetMs ?? 0)
+  const [phraseBars, setPhraseBars] = useMirrored<number>(settings?.phraseBars ?? 8)
+  const [rangeMin, setRangeMin] = useState<string | null>(null)
+  const [rangeMax, setRangeMax] = useState<string | null>(null)
+
+  const commitRange = () => {
+    if (!settings) return
+    const min = Number(rangeMin ?? settings.minBpm)
+    const max = Number(rangeMax ?? settings.maxBpm)
+    if (isValidTempoRange(min, max))
+      beat.command({ type: 'setTempoRange', minBpm: min, maxBpm: max })
+    setRangeMin(null)
+    setRangeMax(null)
+  }
+
+  if (!settings) return <p className="hint">Waiting for the output…</p>
+  return (
+    <div className="beat-settings">
+      <label className="field check">
+        <input
+          type="checkbox"
+          aria-label="Phase correction"
+          checked={phaseCorrection}
+          onChange={(e) => {
+            setPhaseCorrection(e.target.checked)
+            beat.command({ type: 'setPhaseCorrection', enabled: e.target.checked })
+          }}
+        />
+        Phase correction (follow the kicks)
+      </label>
+      <label className="field">
+        <span className="label">Latency offset</span>
+        <input
+          type="range"
+          aria-label="Latency offset"
+          min={LATENCY_OFFSET_RANGE_MS[0]}
+          max={LATENCY_OFFSET_RANGE_MS[1]}
+          step={5}
+          value={latency}
+          onChange={(e) => {
+            setLatency(Number(e.target.value))
+            beat.command({ type: 'setLatencyOffset', ms: Number(e.target.value) })
+          }}
+        />
+        <code className="slider-value">
+          {latency > 0 ? '+' : ''}
+          {latency} ms
+        </code>
+      </label>
+      <p className="hint">
+        Positive = visuals earlier. Raise it if flashes land after the kick you hear.
+      </p>
+      <label className="field">
+        <span className="label">Phrase length</span>
+        <select
+          aria-label="Phrase length"
+          value={phraseBars}
+          onChange={(e) => {
+            setPhraseBars(Number(e.target.value))
+            beat.command({ type: 'setPhraseBars', bars: Number(e.target.value) as PhraseBars })
+          }}
+        >
+          {PHRASE_BAR_OPTIONS.map((n) => (
+            <option key={n} value={n}>
+              {n} bars
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="field">
+        <span className="label">Tempo range</span>
+        <input
+          className="range-input"
+          type="number"
+          aria-label="Minimum BPM"
+          value={rangeMin ?? settings.minBpm}
+          onChange={(e) => setRangeMin(e.target.value)}
+          onBlur={commitRange}
+          onKeyDown={(e) => e.key === 'Enter' && commitRange()}
+        />
+        <span>–</span>
+        <input
+          className="range-input"
+          type="number"
+          aria-label="Maximum BPM"
+          value={rangeMax ?? settings.maxBpm}
+          onChange={(e) => setRangeMax(e.target.value)}
+          onBlur={commitRange}
+          onKeyDown={(e) => e.key === 'Enter' && commitRange()}
+        />
+        <span className="hint">BPM (≥ 1 octave)</span>
+      </div>
+    </div>
   )
 }

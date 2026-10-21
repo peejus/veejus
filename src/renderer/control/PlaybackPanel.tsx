@@ -1,4 +1,11 @@
-import { FIT_MODES, SPEED_MAX, SPEED_MIN, type FitMode, type LayerSettings } from '@shared/protocol'
+import {
+  FIT_MODES,
+  SPEED_MAX,
+  SPEED_MIN,
+  type ClipInfo,
+  type FitMode,
+  type LayerSettings,
+} from '@shared/protocol'
 import type { LibraryState } from './useLibrary'
 
 const FIT_LABELS: Record<FitMode, string> = {
@@ -9,22 +16,43 @@ const FIT_LABELS: Record<FitMode, string> = {
 }
 
 interface Props {
+  clip: ClipInfo
   settings: LayerSettings
   onChange(settings: LayerSettings): void
   library: LibraryState
+  onPlay(id: string): void
   onStop(): void
 }
 
-export function PlaybackPanel({ settings, onChange, library, onStop }: Props) {
+/** The selected library clip: play it on the Background now, and how library plays look. */
+export function ClipInspector({ clip, settings, onChange, library, onPlay, onStop }: Props) {
+  const probe = library.probes[clip.id]
   const playing = library.clips.find((c) => c.id === library.playingId)
   const last = library.lastStart
+  const broken =
+    library.outputStates[clip.id]?.state === 'error' || (probe !== undefined && !probe.ok)
   return (
-    <section className="panel">
-      <h2>Library preview</h2>
-      <p className="hint">
-        Double-click a library clip (or select it and press ▶ Play) to show it now on the Background
-        layer.
-      </p>
+    <div className="clip-inspector" data-testid="clip-inspector">
+      <h2 className="clip-title" title={clip.path}>
+        {clip.name}
+      </h2>
+      {probe?.ok && (
+        <div className="clip-thumb">
+          <img src={probe.meta.thumbUrl} alt="" />
+        </div>
+      )}
+      <div className="row">
+        <button
+          className="primary"
+          disabled={broken}
+          onClick={() => onPlay(clip.id)}
+          title="Show it now on the Background layer, unquantized"
+        >
+          ▶ Play on Background
+        </button>
+      </div>
+      <p className="hint">To play it on the beat, drag it onto a pad.</p>
+
       <div className="now-playing">
         <span className="label">Now playing</span>
         <span data-testid="now-playing">{playing ? playing.name : 'Nothing'}</span>
@@ -39,6 +67,7 @@ export function PlaybackPanel({ settings, onChange, library, onStop }: Props) {
         </p>
       )}
 
+      <h3>Library plays</h3>
       <div className="field">
         <span className="label">Playback</span>
         <div className="segmented" role="group" aria-label="Playback mode">
@@ -92,7 +121,7 @@ export function PlaybackPanel({ settings, onChange, library, onStop }: Props) {
           ))}
         </select>
       </label>
-      <p className="hint">Clips are muted; the DJ mix is the audio.</p>
-    </section>
+      <p className="hint">These apply to clips played from the library. Clips are muted.</p>
+    </div>
   )
 }

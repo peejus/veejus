@@ -231,7 +231,12 @@ The recommended answers to the questions at the end were accepted:
 3. Modulators **attach to sliders**.
 4. UX work goes **before Phase 7**.
 
-**UX-1 is done.** See `docs/PROGRESS.md` for what changed.
+**UX-1 and UX-2 are done.** See `docs/PROGRESS.md` for what changed.
+
+UX-2 differs from the proposal above in two places, both to fit a 1366×768 laptop screen:
+
+- **The mixer sits under the pads**, as a row of five strips, rather than in the right column. That leaves the right column for the preview, the tempo panel and a usable context panel.
+- **The Output and Audio pills open Setup at that tab** rather than separate pop-up menus, so there is one place for each setting. A **Fullscreen** button next to the pills covers the live action.
 
 ## Suggested implementation order
 

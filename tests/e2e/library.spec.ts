@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { fitRect } from '../../src/core/fit'
 import {
   FIXTURES,
+  closeSetup,
+  openSetup,
   importPaths,
   launchApp,
   near,
@@ -31,7 +33,9 @@ test.describe.configure({ mode: 'serial' })
 
 test.beforeAll(async () => {
   h = await launchApp()
+  await openSetup(h.control, 'Output')
   await h.control.getByTestId('swatch-ff2bd6').click()
+  await closeSetup(h.control)
 })
 
 test.afterAll(async () => {

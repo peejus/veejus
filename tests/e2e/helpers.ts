@@ -84,7 +84,7 @@ export async function launchApp(extraArgs: string[] = []): Promise<AppHandles> {
   }
   const control = await find('Veejus Control')
   const output = await find('Veejus Output')
-  await expect(control.getByTestId('output-status')).toHaveText('Output connected')
+  await expect(control.getByTestId('output-status')).toHaveAttribute('data-state', 'connected')
   return { app, control, output }
 }
 
@@ -139,4 +139,20 @@ export function sendToOutput(control: Page, msg: unknown) {
       ),
     msg,
   )
+}
+
+export type SetupTabName = 'Audio' | 'Output' | 'Clock' | 'Diagnostics'
+
+/** Open the Setup drawer (if closed) at a tab. */
+export async function openSetup(control: Page, tab: SetupTabName) {
+  if (!(await control.getByTestId('setup-drawer').isVisible())) {
+    await control.getByRole('button', { name: 'Setup', exact: true }).click()
+  }
+  await control.getByRole('tab', { name: tab, exact: true }).click()
+}
+
+export async function closeSetup(control: Page) {
+  if (await control.getByTestId('setup-drawer').isVisible()) {
+    await control.getByRole('button', { name: 'Close setup' }).click()
+  }
 }

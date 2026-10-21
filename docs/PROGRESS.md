@@ -943,7 +943,7 @@ Modulation adds no measurable JavaScript time, and the effect passes fit in the 
 
 ---
 
-## UX-1: Live-safety quick wins (completed 2026-10-20, awaiting approval)
+## UX-1: Live-safety quick wins (completed and approved 2026-10-20)
 
 This is the first step of the UX plan in `docs/UX_REVIEW.md`, done before Phase 7 at your request, using the recommended answers to the review's questions.
 
@@ -991,3 +991,102 @@ This is the first step of the UX plan in `docs/UX_REVIEW.md`, done before Phase 
 
 - **Double-click start latency.** In the automated test, double-clicking a clip at the same instant the mouse first lands on it starts the video one frame later than ▶ Play. That's 2 frames instead of 1: the hover preview starts decoding the same file at that moment. When the pointer has rested on the tile for even 0.3 s, double-click starts within a frame too.
 - **The sidebar layout is unchanged.** Panels are still stacked; that is UX-2.
+
+**Approval notes (2026-10-20):** UX-1 approved as built.
+
+---
+
+## UX-2: Layout restructure (completed 2026-10-20, awaiting approval)
+
+Step 2 of `docs/UX_REVIEW.md`: one screen for the show, and a drawer for setup.
+
+### What changed
+
+**Before:** pads and library on the left, and an 11-panel sidebar that scrolled to about 3,000 px.
+
+**Now:**
+
+| Area             | What's there                                                                                                                                                                                                                      |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Top bar**      | **Output** pill (display, "· fullscreen"), **Audio** pill (input name, or amber "Audio: off"), a **Fullscreen** / **Exit fullscreen** / **Show output** button, output fps, **⚙ Setup**. Clicking a pill opens Setup at that tab. |
+| **Left column**  | The pads; the **mixer**, one strip per layer plus Master; the library.                                                                                                                                                            |
+| **Right column** | The output preview, the tempo panel, and the **context panel**.                                                                                                                                                                   |
+| **⚙ Setup**      | A drawer that slides over the right side, with tabs **Audio**, **Output** (displays, fullscreen, background color), **Clock** and **Diagnostics** (overlay toggle, ping, media, frame timing).                                    |
+
+**Mixer strips**
+
+- Each strip has:
+  - a color stripe (one fixed color per layer)
+  - M / S / ■
+  - what's playing, and from which pad
+  - an opacity fader
+  - a blend mode
+  - an **FX** button, with a green dot when the layer has effects on
+- The Takeover strip adds "Others: keep playing / dim / pause / hide", plus a dim amount.
+- The Master strip has brightness, **Blackout** and FX.
+
+**Context panel** shows the last thing you selected, with ✕ to close:
+
+- **A pad:** right-click it, hover and press the new **✎**, or drop a clip on it.
+- **A layer's effects:** press **FX** on its strip. Pressing it again closes the panel.
+- **A library clip:** a thumbnail, **▶ Play on Background**, Now playing / Stop / start latency, and the library-play settings (loop, speed, fit). These used to be the "Library preview" panel.
+
+**Removed**
+
+- The **Edit pads** mode: right-click and ✎ cover editing without a mode, so a click always fires.
+- The separate Layers, Effects, Library preview, Background, Output window and frame-timing panels. Their contents moved into the mixer, the context panel or Setup.
+- The effects panel's BG / A / B / TO / Master tabs: the mixer's FX buttons replace them.
+
+**Other changes**
+
+- **One keyboard reference:** a single line under the pads now lists every shortcut: pads, arm, banks, stop, tap, beat 1, nudge, blackout, edit. The tempo panel's separate hint is gone.
+- **Sizing for laptops:** pad tiles are sized by window height, library rows never squash, and the preview is capped in height. At **1366×768** the pads, mixer, preview, tempo panel and context panel are all fully on screen, and the library keeps one row of clips visible.
+
+### Test results
+
+- `npm run typecheck`, `npm run lint` and Prettier: clean.
+- `npm run test:unit`: **181 passing** (no logic changes).
+- `npm run test:e2e`: **87 passing**.
+- **New** `tests/e2e/layout.spec.ts` (6 tests):
+  - The empty context panel shows a hint.
+  - Right-click and ✎ open the pad editor (✎ doesn't fire the pad), and ✕ closes it.
+  - FX opens the layer's effects, and the green dot appears when Kick Bump is turned on. Another strip's FX switches the panel; pressing it again closes it.
+  - A library clip shows in the context panel, and a pad selection takes the panel over.
+  - Every Setup tab holds its controls, and the Audio pill opens Setup at Audio.
+  - **At 1366×768**, the pads, mixer, preview, tempo panel and context panel are all fully in view, and the library is at least 150 px tall.
+- **Smoke:** a new test checks that the status bar names the output display and toggles fullscreen.
+- **Updated:** tests for audio, beat, background, displays and the overlay now open Setup first. The effects tests use the mixer's FX buttons, and "connected" is checked by a status attribute instead of text.
+- **Performance:** the 1080p tests still hold **60.0 fps with 0 dropped frames**.
+  - Output JavaScript per frame is now about **1.3 ms**, down from about 5 ms.
+  - The debug overlay used to be on by default and rebuilt its text every frame; it's off since UX-1.
+
+### Manual test script
+
+1. Run `npm run dev`.
+   - **Expected:** the top bar shows "Output: <your display>" and an amber "Audio: off".
+   - Click **Audio: off**: Setup opens at Audio. Pick an input and close Setup with ✕.
+2. Click **Fullscreen** in the top bar, then **Exit fullscreen**. Click the **Output** pill to choose another display.
+3. Load clips and **Auto-fill**. Fire pads with keys. **Expected:** the mixer strips show what's on each layer and from which pad.
+4. Right-click a pad, or hover it and press ✎. **Expected:** its settings appear on the right, without scrolling. Change the mode, then close with ✕.
+5. Press **FX** on Overlay A and turn on **Kick Bump**. **Expected:** the FX button gets a green dot. Press **FX** on Master to switch, and press it again to close.
+6. Click a library clip. **Expected:** it appears on the right with **▶ Play on Background** and the loop / speed / fit settings.
+7. Try the window at laptop size (about 1366×768). **Expected:** everything for the show is visible at once.
+
+### Decisions and defaults
+
+- **The mixer lives under the pads, not in the right column** (a change from the review's sketch). At laptop heights the right column can't hold the preview, tempo panel, mixer and a usable context panel together.
+- **The status pills open Setup tabs** instead of pop-up menus, so each setting has exactly one home.
+- **Setup is a drawer over the right column.** The pads and the left half of the mixer stay usable while it's open.
+- **Layer colors:**
+  - Background: blue
+  - Overlay A: orange
+  - Overlay B: cyan
+  - Takeover: purple
+
+  UX-3 will reuse them on pad tiles.
+
+### Known issues / limitations
+
+- **The library is small at 1366×768:** one row of clips, and it scrolls. Larger windows give it more room. UX-5 adds search and filters to make finding clips faster than scrolling.
+- **The pad editor and effects lists are long** and scroll inside the context panel at laptop heights. UX-3 (Basic / Advanced pad settings) and UX-4 (modulation on the sliders) shorten them.
+- **Pad tiles still use the `1×·A` badges** (UX-3).

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { launchApp, readOutput, type AppHandles } from './helpers'
+import { closeSetup, launchApp, openSetup, readOutput, type AppHandles } from './helpers'
 
 let h: AppHandles
 
@@ -34,7 +34,9 @@ async function collectBeats(ms: number) {
 }
 
 test('detects the test beat tempo and locks phase within 10 seconds', async () => {
+  await openSetup(h.control, 'Audio')
   await h.control.getByTestId('audio-source').selectOption('test')
+  await closeSetup(h.control)
   await expect.poll(bpmValue, { timeout: 10_000 }).toBeGreaterThan(119.5)
   expect(await bpmValue()).toBeLessThan(120.5)
   await expect(h.control.getByTestId('tempo-mode')).toHaveText('AUTO')
@@ -118,7 +120,7 @@ test('Enter resyncs the downbeat to now', async () => {
 })
 
 test('clock settings: latency offset, phrase length, phase correction', async () => {
-  await h.control.locator('.beat-settings summary').click()
+  await openSetup(h.control, 'Clock')
   await h.control.getByLabel('Latency offset').fill('40')
   await expect.poll(async () => (await beatState()).settings.latencyOffsetMs).toBe(40)
   await h.control.getByLabel('Phrase length').selectOption('16')
@@ -128,10 +130,13 @@ test('clock settings: latency offset, phrase length, phase correction', async ()
   await expect.poll(async () => (await beatState()).settings.phaseCorrection).toBe(false)
   await h.control.getByLabel('Phase correction').check()
   await h.control.getByLabel('Latency offset').fill('0')
+  await closeSetup(h.control)
 })
 
 test('the beat clock keeps running (freewheels) when audio is turned off', async () => {
+  await openSetup(h.control, 'Audio')
   await h.control.getByTestId('audio-source').selectOption('off')
+  await closeSetup(h.control)
   const events = await collectBeats(2000)
   expect(events.length).toBeGreaterThanOrEqual(3)
   const gaps = events.slice(1).map((e, i) => e.atMs - events[i]!.atMs)
@@ -139,7 +144,9 @@ test('the beat clock keeps running (freewheels) when audio is turned off', async
 })
 
 test('the output keeps 60 fps with beat tracking running', async () => {
+  await openSetup(h.control, 'Audio')
   await h.control.getByTestId('audio-source').selectOption('test')
+  await closeSetup(h.control)
   await h.output.waitForTimeout(1500)
   const { frameStats } = await readOutput(h.output)
   expect(frameStats.fps).toBeGreaterThan(58)

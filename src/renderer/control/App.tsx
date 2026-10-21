@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { DisplayInfo, LayerSettings } from '@shared/protocol'
+import type { FxScope } from '@shared/fx'
 import { hexToRgb } from '@shared/color'
-import { AudioPanel } from './AudioPanel'
+import { NUDGE_MS } from '@shared/beat'
 import { BeatPanel } from './BeatPanel'
-import { LayersPanel, PreviewMonitor } from './LayersPanel'
+import { Mixer, PreviewMonitor } from './LayersPanel'
 import { PadEditor } from './PadEditor'
 import { FxPanel } from './FxPanel'
 import { useFx } from './useFx'
@@ -12,23 +13,16 @@ import { PadGrid } from './PadGrid'
 import { usePads, usePadShortcuts } from './usePads'
 import { bridge, request } from './bridge'
 import { LibraryPanel } from './LibraryPanel'
-import { PlaybackPanel } from './PlaybackPanel'
+import { ClipInspector } from './PlaybackPanel'
+import { SetupDrawer, type SetupTab } from './SetupDrawer'
 import { useAudio } from './useAudio'
 import { useBeat, useBeatShortcuts } from './useBeat'
-import { NUDGE_MS } from '@shared/beat'
 import { useLibrary } from './useLibrary'
 import { useOutputLink } from './useOutputLink'
 
-const SWATCHES = [
-  { name: 'Black', hex: '#000000' },
-  { name: 'Hot pink', hex: '#ff2bd6' },
-  { name: 'Acid green', hex: '#7dff1a' },
-  { name: 'Electric blue', hex: '#1a6bff' },
-  { name: 'Sunset', hex: '#ff7a1a' },
-  { name: 'White', hex: '#ffffff' },
-]
-
-const MB = 1024 * 1024
+/** What the context panel (right column, under the beat strip) is showing. */
+type Context =
+  { kind: 'none' } | { kind: 'pad' } | { kind: 'fx'; scope: FxScope } | { kind: 'clip' }
 
 export function App() {
   const link = useOutputLink()
@@ -52,6 +46,10 @@ export function App() {
     speed: 1,
     fit: 'contain',
   })
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [setupTab, setSetupTab] = useState<SetupTab>('audio')
+  const [context, setContext] = useState<Context>({ kind: 'none' })
+  const [selectedClip, setSelectedClip] = useState<string | null>(null)
 
   const refreshDisplays = useCallback(() => {
     request({ type: 'listDisplays' }, 'displays')
@@ -61,6 +59,46 @@ export function App() {
 
   // Displays can be plugged in or removed at any time; main re-broadcasts state when they are.
   useEffect(refreshDisplays, [refreshDisplays, link.state])
+
+  // Selecting a pad (right-click, ✎, or dropping a clip on it) shows it in the context panel.
+  const { selected: selectedPad, select: selectPad } = pads
+  const [seenPad, setSeenPad] = useState(selectedPad)
+  if (selectedPad !== seenPad) {
+    setSeenPad(selectedPad)
+    if (selectedPad) setContext({ kind: 'pad' })
+  }
+
+  const showContext = (next: Context) => {
+    if (next.kind !== 'pad') selectPad(null)
+    setContext(next)
+  }
+
+  const selectClip = useCallback(
+    (id: string | null) => {
+      setSelectedClip(id)
+      if (id) {
+        selectPad(null)
+        setContext({ kind: 'clip' })
+      }
+    },
+    [selectPad],
+  )
+
+  const toggleFx = (scope: FxScope) =>
+    showContext(
+      context.kind === 'fx' && context.scope === scope ? { kind: 'none' } : { kind: 'fx', scope },
+    )
+
+  const openSetup = (tab: SetupTab) => {
+    setSetupTab(tab)
+    setSetupOpen(true)
+    if (tab === 'audio') {
+      // Put the input picker under the keyboard once the drawer has rendered.
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLSelectElement>('#audio-panel select')?.focus(),
+      )
+    }
+  }
 
   const { markPlayRequested } = library
   const playClip = useCallback(
@@ -94,177 +132,163 @@ export function App() {
     send({ type: 'setDebugOverlay', visible: next })
   }
 
-  const { stats, mediaStats } = link
+  const setFullscreen = (fullscreen: boolean) =>
+    run(request({ type: 'setOutputFullscreen', fullscreen }, 'outputState'))
+
+  const { stats } = link
+  const outputDisplay = displays.find((d) => d.id === link.state.displayId)
+  const outputPill = !link.connected
+    ? { state: 'bad', text: 'Output: waiting…' }
+    : !link.state.visible
+      ? { state: 'warn', text: 'Output hidden' }
+      : {
+          state: 'ok',
+          text: `Output: ${outputDisplay?.label ?? 'window'}${link.state.fullscreen ? ' · fullscreen' : ''}`,
+        }
+  const a = audio.status
+  const audioPill =
+    a.state === 'running'
+      ? { state: 'ok', text: `Audio: ${a.label ?? 'on'}` }
+      : a.state === 'starting'
+        ? { state: 'warn', text: 'Audio: starting…' }
+        : a.state === 'error'
+          ? { state: 'bad', text: 'Audio: error' }
+          : { state: 'warn', text: 'Audio: off' }
+
+  const clip = library.clips.find((c) => c.id === selectedClip)
+  const sel = pads.selected
+
   return (
     <div className="app">
       <header className="topbar">
         <h1>Veejus</h1>
-        <span className={`status ${link.connected ? 'ok' : 'bad'}`} data-testid="output-status">
-          {link.connected ? 'Output connected' : 'Waiting for output…'}
-        </span>
-        <span className="metric" data-testid="output-fps">
+        <button
+          className={`pill ${outputPill.state}`}
+          data-testid="output-status"
+          data-state={link.connected ? 'connected' : 'waiting'}
+          title="Output window and display"
+          onClick={() => openSetup('output')}
+        >
+          {outputPill.text}
+        </button>
+        <button
+          className={`pill ${audioPill.state}`}
+          data-testid="audio-status"
+          title="Audio input for beat detection"
+          onClick={() => openSetup('audio')}
+        >
+          {audioPill.text}
+        </button>
+        {link.connected && (
+          <button
+            className="subtle"
+            onClick={() =>
+              link.state.visible
+                ? setFullscreen(!link.state.fullscreen)
+                : run(request({ type: 'showOutput' }, 'outputState'))
+            }
+          >
+            {!link.state.visible
+              ? 'Show output'
+              : link.state.fullscreen
+                ? 'Exit fullscreen'
+                : 'Fullscreen'}
+          </button>
+        )}
+        <span className="spacer" />
+        <span className="metric" data-testid="output-fps" title="Output frames per second">
           {stats ? `${stats.fps.toFixed(0)} fps` : '-- fps'}
         </span>
+        <button
+          className={`setup-button${setupOpen ? ' on' : ''}`}
+          aria-label="Setup"
+          aria-pressed={setupOpen}
+          title="Audio, output, clock and diagnostics"
+          onClick={() => setSetupOpen(!setupOpen)}
+        >
+          ⚙ Setup
+        </button>
       </header>
 
       <div className="workspace">
         <main className="main-area">
           <PadGrid pads={pads} beat={beat} clips={library.clips} probes={library.probes} />
-          <LibraryPanel library={library} onPlay={playClip} />
+          <Mixer
+            layers={layers}
+            fx={fx}
+            clips={library.clips}
+            fxOpen={context.kind === 'fx' ? context.scope : null}
+            onFx={toggleFx}
+          />
+          <LibraryPanel
+            library={library}
+            onPlay={playClip}
+            selectedId={selectedClip}
+            onSelect={selectClip}
+          />
         </main>
 
-        <aside className="sidebar">
+        <aside className="right-column">
           <PreviewMonitor layers={layers} />
-
-          <BeatPanel beat={beat} audioState={audio.status.state} />
-
-          <PadEditor pads={pads} clips={library.clips} />
-
-          <LayersPanel layers={layers} clips={library.clips} />
-
-          <FxPanel fx={fx} />
-
-          <PlaybackPanel
-            settings={layerSettings}
-            onChange={changeLayerSettings}
-            library={library}
-            onStop={() => send({ type: 'stopClip' })}
+          <BeatPanel
+            beat={beat}
+            audioState={audio.status.state}
+            onAudioSetup={() => openSetup('audio')}
           />
-
-          <AudioPanel audio={audio} />
-
-          <section className="panel">
-            <h2>Background</h2>
-            <div className="row">
-              <input
-                type="color"
-                aria-label="Background color"
-                value={color}
-                onChange={(e) => applyColor(e.target.value)}
-              />
-              <code data-testid="current-color">{color}</code>
-            </div>
-            <div className="swatches">
-              {SWATCHES.map((s) => (
-                <button
-                  key={s.hex}
-                  className="swatch"
-                  title={s.name}
-                  aria-label={s.name}
-                  data-testid={`swatch-${s.hex.slice(1)}`}
-                  style={{ background: s.hex }}
-                  onClick={() => applyColor(s.hex)}
-                />
-              ))}
-            </div>
-            <p className="hint" data-testid="bg-latency">
-              Last change drawn in{' '}
-              {link.backgroundLatencyMs !== null
-                ? `${link.backgroundLatencyMs.toFixed(1)} ms`
-                : '--'}{' '}
-              (one frame at 60 fps is 16.7 ms)
-            </p>
-          </section>
-
-          <section className="panel">
-            <h2>Output window</h2>
-            <dl className="facts">
-              <dt>Visible</dt>
-              <dd>{link.state.visible ? 'yes' : 'no'}</dd>
-              <dt>Fullscreen</dt>
-              <dd data-testid="output-fullscreen">{link.state.fullscreen ? 'yes' : 'no'}</dd>
-            </dl>
-            <div className="row">
+          <section className="panel context-panel" data-testid="context-panel">
+            {context.kind !== 'none' && (
               <button
-                onClick={() =>
-                  run(
-                    request(
-                      { type: 'setOutputFullscreen', fullscreen: !link.state.fullscreen },
-                      'outputState',
-                    ),
-                  )
-                }
+                className="close"
+                aria-label="Close panel"
+                onClick={() => showContext({ kind: 'none' })}
               >
-                {link.state.fullscreen ? 'Exit fullscreen' : 'Go fullscreen'}
+                ✕
               </button>
-              {!link.state.visible && (
-                <button onClick={() => run(request({ type: 'showOutput' }, 'outputState'))}>
-                  Show output
-                </button>
-              )}
-            </div>
-            <p className="hint">In the output window: Esc exits fullscreen, F11 toggles it.</p>
-
-            <h3>Displays</h3>
-            <ul className="displays" data-testid="display-list">
-              {displays.map((d) => {
-                const here = d.id === link.state.displayId
-                return (
-                  <li key={d.id} className={here ? 'current' : ''}>
-                    <span>
-                      {d.label}
-                      {d.primary ? ' (primary)' : ''} · {d.width}×{d.height} @{d.scaleFactor}x
-                    </span>
-                    {here ? (
-                      <span className="tag">output here</span>
-                    ) : (
-                      <button
-                        onClick={() =>
-                          run(
-                            request(
-                              { type: 'moveOutputToDisplay', displayId: d.id },
-                              'outputState',
-                            ),
-                          )
-                        }
-                      >
-                        Send output here
-                      </button>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-
-          <section className="panel">
-            <h2>Diagnostics</h2>
-            <label className="check">
-              <input type="checkbox" checked={overlay} onChange={toggleOverlay} /> Debug overlay on
-              the output
-            </label>
-            <p className="hint">The overlay is drawn over the show, so the audience sees it.</p>
-            <dl className="facts">
-              <dt>IPC ping</dt>
-              <dd data-testid="ping-ms">
-                IPC {link.pingMs !== null ? `${link.pingMs.toFixed(1)} ms` : '--'}
-              </dd>
-              {mediaStats && (
-                <>
-                  <dt>Media</dt>
-                  <dd data-testid="media-stats">
-                    {mediaStats.readyClips} ready · {(mediaStats.imageBytes / MB).toFixed(0)} MB
-                    images · {mediaStats.warmVideos}/{mediaStats.warmVideoLimit} videos
-                  </dd>
-                </>
-              )}
-            </dl>
-            {stats ? (
-              <dl className="facts">
-                <dt>FPS</dt>
-                <dd>{stats.fps.toFixed(1)}</dd>
-                <dt>Frame avg</dt>
-                <dd>{stats.frameTimeAvgMs.toFixed(2)} ms</dd>
-                <dt>Frame max</dt>
-                <dd>{stats.frameTimeMaxMs.toFixed(2)} ms</dd>
-                <dt>Dropped (1s)</dt>
-                <dd>{stats.droppedFrames}</dd>
-              </dl>
+            )}
+            {context.kind === 'pad' && sel ? (
+              <PadEditor pads={pads} clips={library.clips} />
+            ) : context.kind === 'fx' ? (
+              <FxPanel fx={fx} scope={context.scope} />
+            ) : context.kind === 'clip' && clip ? (
+              <ClipInspector
+                clip={clip}
+                settings={layerSettings}
+                onChange={changeLayerSettings}
+                library={library}
+                onPlay={playClip}
+                onStop={() => send({ type: 'stopClip' })}
+              />
             ) : (
-              <p className="hint">No stats yet.</p>
+              <div className="context-empty">
+                <h2>Nothing selected</h2>
+                <p className="hint">
+                  Right-click a pad (or ✎) to edit it, press <b>FX</b> on a mixer strip for effects,
+                  or click a library clip to inspect and play it.
+                </p>
+              </div>
             )}
           </section>
         </aside>
+
+        <SetupDrawer
+          open={setupOpen}
+          tab={setupTab}
+          onTab={setSetupTab}
+          onClose={() => setSetupOpen(false)}
+          audio={audio}
+          beat={beat}
+          link={link}
+          displays={displays}
+          color={color}
+          onColor={applyColor}
+          overlay={overlay}
+          onToggleOverlay={toggleOverlay}
+          onFullscreen={setFullscreen}
+          onShowOutput={() => run(request({ type: 'showOutput' }, 'outputState'))}
+          onMoveOutput={(displayId) =>
+            run(request({ type: 'moveOutputToDisplay', displayId }, 'outputState'))
+          }
+        />
       </div>
 
       {error && (

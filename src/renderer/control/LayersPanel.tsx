@@ -1,20 +1,24 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type CSSProperties } from 'react'
 import {
   BLEND_MODES,
   LAYER_IDS,
   LAYER_NAMES,
   TAKEOVER_MODES,
   type BlendMode,
+  type LayerId,
   type TakeoverMode,
 } from '@shared/layers'
+import type { FxScope } from '@shared/fx'
 import type { ClipInfo } from '@shared/protocol'
+import { chainActive } from './FxPanel'
+import type { FxLink } from './useFx'
 import type { LayersLink } from './useLayers'
 
 const TAKEOVER_LABELS: Record<TakeoverMode, string> = {
-  none: 'Keep playing',
-  dim: 'Dim',
-  pause: 'Pause',
-  hide: 'Hide',
+  none: 'Others: keep playing',
+  dim: 'Others: dim',
+  pause: 'Others: pause',
+  hide: 'Others: hide',
 }
 
 /** Live mirror of the output, drawn from preview frames without React renders. */
@@ -65,58 +69,97 @@ export function PreviewMonitor({ layers }: { layers: LayersLink }) {
   )
 }
 
-export function LayersPanel({ layers, clips }: { layers: LayersLink; clips: ClipInfo[] }) {
+/** One color per layer, used wherever a layer is shown. */
+export const LAYER_COLORS: Record<LayerId, string> = {
+  background: '#4f8cff',
+  overlayA: '#ff9f1a',
+  overlayB: '#2bd6ff',
+  takeover: '#b46bff',
+}
+
+interface MixerProps {
+  layers: LayersLink
+  fx: FxLink
+  clips: ClipInfo[]
+  /** Which chain the context panel is showing, if any. */
+  fxOpen: FxScope | null
+  onFx(scope: FxScope): void
+}
+
+/** The live mix: one strip per layer, bottom layer first, then the master. */
+export function Mixer({ layers, fx, clips, fxOpen, onFx }: MixerProps) {
   const names = new Map(clips.map((c) => [c.id, c.name]))
   const { config, master } = layers
+  const fxButton = (scope: FxScope, label: string) => {
+    const active = chainActive(fx.config[scope])
+    return (
+      <button
+        className={`fx-button${fxOpen === scope ? ' on' : ''}`}
+        aria-label={`${label} effects`}
+        aria-pressed={fxOpen === scope}
+        title={`${label} effects${active ? ' (active)' : ''}`}
+        onClick={() => onFx(scope)}
+      >
+        FX{active && <span className="fx-dot" data-testid={`fx-dot-${scope}`} />}
+      </button>
+    )
+  }
   return (
-    <section className="panel layers-panel">
-      <h2>Layers</h2>
-      {/* Top layer first, like a mixing desk. */}
-      {[...LAYER_IDS].reverse().map((id) => {
+    <section className="panel mixer" aria-label="Mixer">
+      {LAYER_IDS.map((id) => {
         const cfg = config.layers[id]
         const show = layers.showing[id]
+        const name = LAYER_NAMES[id]
         return (
           <div
-            className={`layer-row${cfg.muted ? ' muted' : ''}`}
+            className={`strip${cfg.muted ? ' muted' : ''}`}
             key={id}
             data-testid={`layer-${id}`}
+            style={{ '--layer-color': LAYER_COLORS[id] } as CSSProperties}
           >
-            <div className="layer-top">
-              <span className="layer-name">{LAYER_NAMES[id]}</span>
-              <span className="layer-clip" data-testid={`layer-${id}-clip`}>
-                {show.clipId
-                  ? `${names.get(show.clipId) ?? '?'}${show.padId ? ` · ${show.padId}` : ''}`
-                  : '—'}
-              </span>
+            <div className="strip-top">
+              <span className="strip-name">{name}</span>
               <button
                 className={`ms${cfg.muted ? ' on' : ''}`}
-                aria-label={`Mute ${LAYER_NAMES[id]}`}
+                aria-label={`Mute ${name}`}
                 aria-pressed={cfg.muted}
+                title="Mute"
                 onClick={() => layers.setLayer(id, { muted: !cfg.muted })}
               >
                 M
               </button>
               <button
                 className={`ms solo${cfg.solo ? ' on' : ''}`}
-                aria-label={`Solo ${LAYER_NAMES[id]}`}
+                aria-label={`Solo ${name}`}
                 aria-pressed={cfg.solo}
+                title="Solo"
                 onClick={() => layers.setLayer(id, { solo: !cfg.solo })}
               >
                 S
               </button>
               <button
                 className="ms"
-                aria-label={`Stop ${LAYER_NAMES[id]}`}
+                aria-label={`Stop ${name}`}
+                title="Stop the clip on this layer"
                 disabled={!show.clipId}
                 onClick={() => layers.stopLayer(id)}
               >
                 ■
               </button>
             </div>
-            <div className="layer-controls">
+            <div
+              className="strip-clip"
+              data-testid={`layer-${id}-clip`}
+              title={show.clipId ? names.get(show.clipId) : undefined}
+            >
+              {show.clipId
+                ? `${names.get(show.clipId) ?? '?'}${show.padId ? ` · ${show.padId}` : ''}`
+                : '—'}
+            </div>
+            <div className="strip-fader">
               <input
                 type="range"
-                aria-label={`${LAYER_NAMES[id]} opacity`}
+                aria-label={`${name} opacity`}
                 min={0}
                 max={1}
                 step={0.01}
@@ -124,8 +167,11 @@ export function LayersPanel({ layers, clips }: { layers: LayersLink; clips: Clip
                 onChange={(e) => layers.setLayer(id, { opacity: Number(e.target.value) })}
               />
               <code className="slider-value">{Math.round(cfg.opacity * 100)}%</code>
+            </div>
+            <div className="strip-bottom">
               <select
-                aria-label={`${LAYER_NAMES[id]} blend`}
+                aria-label={`${name} blend`}
+                title="Blend mode"
                 value={cfg.blend}
                 onChange={(e) => layers.setLayer(id, { blend: e.target.value as BlendMode })}
               >
@@ -135,60 +181,74 @@ export function LayersPanel({ layers, clips }: { layers: LayersLink; clips: Clip
                   </option>
                 ))}
               </select>
+              {fxButton(id, name)}
             </div>
+            {id === 'takeover' && (
+              <div
+                className="strip-takeover"
+                title="What the layers below do while Takeover shows a clip"
+              >
+                <select
+                  aria-label="Takeover behavior"
+                  value={config.takeoverMode}
+                  onChange={(e) =>
+                    layers.setTakeover({ takeoverMode: e.target.value as TakeoverMode })
+                  }
+                >
+                  {TAKEOVER_MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {TAKEOVER_LABELS[m]}
+                    </option>
+                  ))}
+                </select>
+                {config.takeoverMode === 'dim' && (
+                  <input
+                    type="range"
+                    aria-label="Takeover dim amount"
+                    title={`Dim the others by ${Math.round(config.takeoverDim * 100)}%`}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={config.takeoverDim}
+                    onChange={(e) => layers.setTakeover({ takeoverDim: Number(e.target.value) })}
+                  />
+                )}
+              </div>
+            )}
           </div>
         )
       })}
 
-      <div className="field">
-        <span className="label">Under takeover</span>
-        <select
-          aria-label="Takeover behavior"
-          value={config.takeoverMode}
-          onChange={(e) => layers.setTakeover({ takeoverMode: e.target.value as TakeoverMode })}
-        >
-          {TAKEOVER_MODES.map((m) => (
-            <option key={m} value={m}>
-              {TAKEOVER_LABELS[m]}
-            </option>
-          ))}
-        </select>
-        {config.takeoverMode === 'dim' && (
+      <div className="strip master-strip" data-testid="layer-master">
+        <div className="strip-top">
+          <span className="strip-name">Master</span>
+        </div>
+        <div className="strip-fader">
           <input
             type="range"
-            aria-label="Takeover dim amount"
+            aria-label="Master brightness"
+            title="Brightness"
             min={0}
             max={1}
-            step={0.05}
-            value={config.takeoverDim}
-            onChange={(e) => layers.setTakeover({ takeoverDim: Number(e.target.value) })}
+            step={0.01}
+            value={master.brightness}
+            onChange={(e) => layers.setMaster({ brightness: Number(e.target.value) })}
           />
-        )}
+          <code className="slider-value">{Math.round(master.brightness * 100)}%</code>
+        </div>
+        <div className="strip-bottom">
+          <button
+            className={`blackout${master.blackout ? ' on' : ''}`}
+            aria-pressed={master.blackout}
+            data-testid="blackout"
+            title="Blackout (backquote key)"
+            onClick={() => layers.setMaster({ blackout: !master.blackout })}
+          >
+            {master.blackout ? 'BLACKOUT ON' : 'Blackout'}
+          </button>
+          {fxButton('master', 'Master')}
+        </div>
       </div>
-
-      <h3>Master</h3>
-      <label className="field">
-        <span className="label">Brightness</span>
-        <input
-          type="range"
-          aria-label="Master brightness"
-          min={0}
-          max={1}
-          step={0.01}
-          value={master.brightness}
-          onChange={(e) => layers.setMaster({ brightness: Number(e.target.value) })}
-        />
-        <code className="slider-value">{Math.round(master.brightness * 100)}%</code>
-      </label>
-      <button
-        className={`blackout${master.blackout ? ' on' : ''}`}
-        aria-pressed={master.blackout}
-        data-testid="blackout"
-        title="Blackout (` key)"
-        onClick={() => layers.setMaster({ blackout: !master.blackout })}
-      >
-        {master.blackout ? 'BLACKOUT ON' : 'Blackout'}
-      </button>
     </section>
   )
 }

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { launchApp, readOutput, type AppHandles } from './helpers'
+import { launchApp, openSetup, readOutput, type AppHandles } from './helpers'
 
 // Chromium's fake capture devices stand in for real audio interfaces.
 const FAKE_DEVICES = ['--use-fake-device-for-media-stream']
@@ -10,6 +10,8 @@ test.describe.configure({ mode: 'serial' })
 
 test.beforeAll(async () => {
   h = await launchApp(FAKE_DEVICES)
+  // Every test here works in Setup → Audio.
+  await openSetup(h.control, 'Audio')
 })
 
 test.afterAll(async () => {

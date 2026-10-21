@@ -184,9 +184,12 @@ src/
                 trigger/: TriggerScheduler, pickRandom
                 modulation/: LFOs, beat envelopes, audio sources, resolveChain
   renderer/
-    control/    React control UI: PreviewMonitor, LayersPanel, FxPanel (+ useFx), PadGrid, PadEditor, BeatPanel,
-                LibraryPanel, PlaybackPanel, AudioPanel, probe queue, hooks (useLayers + blackout key,
-                usePads + pad keys, useBeat + tempo keys, useAudio, useLibrary, useOutputLink)
+    control/    React control UI. App = status bar + left column (PadGrid, Mixer, LibraryPanel)
+                + right column (PreviewMonitor, BeatPanel, context panel showing PadEditor,
+                FxPanel or ClipInspector) + SetupDrawer (AudioPanel, output/background,
+                ClockSettings, diagnostics). Probe queue; hooks (useLayers + blackout key,
+                usePads + pad keys, useBeat + tempo keys, useAudio, useFx, useLibrary,
+                useOutputLink)
     output/     Stage (WebGL2 compositor + effect chains), effectShader, ClipLayer x4, media/ (MediaManager, VideoClip, ImageClip),
                 audio/ (AudioEngine, analysis.worklet), metronome
 tests/
