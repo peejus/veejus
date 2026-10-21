@@ -1925,3 +1925,266 @@ button.slider-value:disabled {
 .strip-fader .smart-slider button.slider-value {
   min-width: 36px;
 }
+
+/* ---- UX-5: color meanings, library, first run, narrow windows ----
+ *
+ * One color per meaning, everywhere:
+ *   --live     green    something is playing / on
+ *   --pending  amber    queued, armed, waiting (and warnings)
+ *   --select   magenta  the beat, and what you selected (brand)
+ *   --danger   red      destructive actions, blackout, errors
+ *   layers     blue / orange / cyan / purple (layerColors.ts)
+ */
+:root {
+  --live: var(--ok);
+  --pending: #ffb31a;
+  --select: var(--accent);
+  --danger: var(--bad);
+}
+
+/* Selection is magenta, playing is green, armed is amber. */
+.grid-pad.selected,
+.pad.selected {
+  border-color: var(--select);
+}
+.pad-play {
+  border-color: var(--select);
+}
+.pad.playing,
+.pad.playing.selected {
+  border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live);
+}
+.grid-pad.state-armed {
+  border-color: var(--pending);
+  box-shadow: 0 0 10px var(--pending);
+  animation: queued-blink 0.6s steps(2) infinite;
+}
+.pad-grid-perf.beat-pulse.downbeat .grid-pad.state-playing {
+  box-shadow: 0 0 24px var(--live);
+}
+.drop-banner {
+  background: linear-gradient(90deg, #ffb31a, #ff7a1a);
+  color: #1a1206;
+}
+.drop-banner .compact {
+  color: #1a1206;
+}
+.drop-banner button,
+.drop-banner select {
+  background: rgba(0, 0, 0, 0.18);
+  color: #1a1206;
+  border-color: rgba(0, 0, 0, 0.35);
+}
+.beat-light.on {
+  background: var(--select);
+  box-shadow: 0 0 10px var(--select);
+}
+.clip {
+  color: #8a8aa2;
+}
+
+/* Type: nothing readable below 12 px. */
+.pad-meta,
+.band-name,
+.detected,
+.phase-state,
+.pad-label,
+.layer-clip,
+.fx-preset-hint,
+.fx-card-hint,
+.muted {
+  font-size: 12px;
+}
+
+/* Library: search, filter chips, names on the thumbnail. */
+.library-header {
+  flex-wrap: wrap;
+}
+.library-search {
+  flex: 1;
+  min-width: 120px;
+  max-width: 260px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #2a2a38;
+  color: var(--text);
+  font: inherit;
+}
+.library-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.chip {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.chip.on {
+  background: var(--select);
+  border-color: var(--select);
+  color: #14141a;
+}
+.chip.bad:not(.on) {
+  border-color: #6a2a2a;
+  color: #ff9a9a;
+}
+.chip-count {
+  opacity: 0.75;
+}
+.remove-broken {
+  margin-left: auto;
+  font-size: 12px;
+}
+.empty-library.small {
+  padding: 16px;
+  font-size: 13px;
+}
+.pad-badges {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  display: flex;
+  gap: 4px;
+}
+.pad-badges .badge {
+  position: static;
+}
+.badge.assigned {
+  color: var(--text);
+}
+.pad-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 8px 4px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.82) 45%);
+  pointer-events: none;
+}
+.pad-caption .pad-name {
+  padding: 0;
+  font-weight: 600;
+  text-shadow: 0 1px 2px #000;
+}
+.pad-caption .pad-meta {
+  padding: 0;
+  color: #c4c4d4;
+}
+.pad .dot {
+  bottom: auto;
+  top: 8px;
+  right: 30px;
+}
+.pad-media {
+  aspect-ratio: 16 / 10;
+}
+
+/* First run. */
+.first-run {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border: 1px solid #5a4a20;
+  border-radius: 8px;
+  background: #241f14;
+  font-size: 13px;
+}
+.first-run-title {
+  font-weight: 700;
+  color: var(--pending);
+}
+.first-run ol {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.first-run li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.first-run li.done {
+  color: var(--muted);
+}
+.first-run-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--pending);
+  color: var(--pending);
+  font-size: 12px;
+  font-weight: 700;
+}
+.first-run li.done .first-run-num {
+  border-color: var(--live);
+  color: var(--live);
+}
+.first-run button.link {
+  font-size: 13px;
+}
+
+/* Narrow windows: a slimmer right column, and the library becomes a scrolling strip. */
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+  .library .pad-grid {
+    grid-auto-flow: column;
+    grid-auto-columns: 132px;
+    grid-template-columns: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .library {
+    min-height: 0;
+    flex: none;
+  }
+  /* Keep the five strips side by side; drop the now-playing line to save height. */
+  .mixer {
+    gap: 4px;
+    padding: 6px;
+  }
+  .strip {
+    padding: 4px 5px;
+  }
+  .strip-clip {
+    display: none;
+  }
+  .strip-fader .slider-value {
+    display: none;
+  }
+}
+
+/* The window itself never scrolls; the left column scrolls on its own if it must. */
+.app {
+  overflow: hidden;
+}
+.main-area {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.main-area > * {
+  flex-shrink: 0;
+}
+.main-area > .library {
+  /* Fill what's left and scroll inside; never shorter than about one row of clips. */
+  flex: 1 1 0;
+  min-height: 210px;
+}
+.context-panel {
+  overflow-x: hidden;
+}

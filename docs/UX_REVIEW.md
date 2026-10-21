@@ -231,7 +231,7 @@ The recommended answers to the questions at the end were accepted:
 3. Modulators **attach to sliders**.
 4. UX work goes **before Phase 7**.
 
-**UX-1 to UX-4 are done.** See `docs/PROGRESS.md` for what changed.
+**All five steps (UX-1 to UX-5) are done.** See `docs/PROGRESS.md` for what changed.
 
 UX-2 differs from the proposal above in two places, both to fit a 1366×768 laptop screen:
 

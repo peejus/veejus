@@ -53,6 +53,13 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 
 ## Using it
 
+- **First run:** a **Get ready** strip at the top lists three steps: add clips, choose the audio input, choose the output screen. It disappears when all three are done, or when you press **Hide**.
+- **Colors mean the same thing everywhere:**
+  - green: playing
+  - amber: queued or armed (and the drop countdown)
+  - magenta: the beat and whatever you selected
+  - red: destructive actions and errors
+  - the four layer colors: blue, orange, cyan, purple
 - **Screen layout:**
   - **Top bar:** **Output** and **Audio** status pills (click one to set it up), a **Fullscreen** toggle, output fps, and **⚙ Setup**.
   - **Left column:** the pads, the **mixer** (one strip per layer plus Master) and the library.
@@ -84,7 +91,7 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
     Each modulator has an amount, a range it adds and invert. A pink **ghost** marker on the slider (and on the mixer fader for opacity) shows where the modulation is taking the value right now. **All modulators** lists them all.
 
   - **Sliders:** double-click resets to the default, **Shift-drag** fine-tunes at a tenth of the speed, and clicking the number lets you type a value. This also works on the mixer faders.
-- **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. Hover a clip for a live preview. A click only **selects** it, so browsing never changes the show. To show it on the Background layer right away (unquantized), use the **▶ Play** button on the selected clip, or double-click it. **Clear library…** asks first and offers **Undo** for 10 seconds. The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
+- **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. **Search** by name or folder, and filter by type: Video, GIF / animated, Stills or Broken. **Remove N broken** clears unplayable clips in one go, with Undo. Each tile shows its name on the thumbnail, and **▣ N** shows how many pads use it; removing a clip that pads use asks first. Hover a clip for a live preview. A click only **selects** it, so browsing never changes the show. To show it on the Background layer right away (unquantized), use the **▶ Play** button on the selected clip, or double-click it. **Clear library…** asks first and offers **Undo** for 10 seconds. The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
 - **Library plays:** selecting a library clip shows it in the context panel with **▶ Play on Background**, **Stop**, and how library plays look: loop or one-shot, speed (0.25×–4×), and fit (contain, cover, stretch, original size). Changes apply live. **Stop** clears the layer.
 - **Tempo:** the BPM is detected from the audio and the beat lights follow the kicks. **Space** taps tempo, **Enter** marks "now is beat 1", **← / →** nudge the grid 10 ms. You can also type a BPM, use ×2 / ÷2, or lock the tempo. **⚙ Setup → Clock** has phase correction, a latency offset (raise it if the visuals land after the kick you hear), phrase length and tempo range. If no audio input is selected, the tempo panel says so and opens **⚙ Setup → Audio**. The output's debug overlay (off by default, because the audience sees it; turn it on under **⚙ Setup → Diagnostics**) shows a 4-light metronome.
 - **Audio input** (⚙ Setup → Audio, or click the Audio pill): pick your mixer or audio-interface input, **System audio** (whatever this PC is playing), or the silent built-in **Test beat**. Watch the level meter, band bars and spectrum, and the **Kick** and **Snare / hat** lamps. Set **Input gain** so the level sits mostly green without lighting CLIP. **Analysis settings** has sensitivities, envelope times, crossovers and band gains. Veejus never plays audio itself.

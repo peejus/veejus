@@ -5,7 +5,9 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test'
-import { resolve } from 'node:path'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { closeSetup, openSetup } from './helpers'
 
 let app: ElectronApplication
@@ -37,7 +39,10 @@ async function windowWithTitle(title: string): Promise<Page> {
 }
 
 test.beforeAll(async () => {
-  app = await electron.launch({ args: [resolve(__dirname, '../../out/main/index.js')] })
+  app = await electron.launch({
+    args: [resolve(__dirname, '../../out/main/index.js')],
+    env: { ...process.env, VEEJUS_USER_DATA: mkdtempSync(join(tmpdir(), 'veejus-test-')) },
+  })
   control = await windowWithTitle('Veejus Control')
   output = await windowWithTitle('Veejus Output')
 })

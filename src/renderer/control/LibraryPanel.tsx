@@ -33,12 +33,54 @@ const STATE_LABEL: Record<ClipLoadState, string> = {
   error: 'Error',
 }
 
+// ---- Filters ------------------------------------------------------------------
+
+const FILTERS = ['all', 'video', 'animated', 'still', 'broken'] as const
+type Filter = (typeof FILTERS)[number]
+const FILTER_LABELS: Record<Filter, string> = {
+  all: 'All',
+  video: 'Video',
+  animated: 'GIF / animated',
+  still: 'Stills',
+  broken: 'Broken',
+}
+
+type Category = Exclude<Filter, 'all'>
+
+/** What kind of clip this is, for the filters. Broken wins over everything else. */
+function categoryOf(clip: ClipInfo, library: LibraryState): Category {
+  if (errorOf(clip, library)) return 'broken'
+  if (clip.kind === 'video') return 'video'
+  const probe = library.probes[clip.id]
+  const frames = probe?.ok ? probe.meta.frameCount : undefined
+  if (frames !== undefined) return frames > 1 ? 'animated' : 'still'
+  // Not probed yet: guess from the type.
+  return clip.mime === 'image/gif' || clip.mime === 'image/apng' ? 'animated' : 'still'
+}
+
+function errorOf(clip: ClipInfo, library: LibraryState): string | null {
+  const out = library.outputStates[clip.id]
+  const probe = library.probes[clip.id]
+  return out?.state === 'error' ? (out.error ?? 'Error') : probe && !probe.ok ? probe.error : null
+}
+
+function matches(clip: ClipInfo, query: string): boolean {
+  if (!query) return true
+  const q = query.toLowerCase()
+  return clip.path.replaceAll('\\', '/').toLowerCase().includes(q)
+}
+
+// ---- Tiles --------------------------------------------------------------------
+
 interface PadProps {
   clip: ClipInfo
   probe: ProbeResult | undefined
+  error: string | null
   outputState: { state: ClipLoadState; error?: string } | undefined
   playing: boolean
   selected: boolean
+  /** How many pads use this clip. */
+  assigned: number
   onSelect(id: string): void
   onPlay(id: string): void
   onRemove(id: string): void
@@ -47,18 +89,19 @@ interface PadProps {
 const Pad = memo(function Pad({
   clip,
   probe,
+  error,
   outputState,
   playing,
   selected,
+  assigned,
   onSelect,
   onPlay,
   onRemove,
 }: PadProps) {
   const [hover, setHover] = useState(false)
-  const error =
-    outputState?.state === 'error' ? outputState.error : probe && !probe.ok ? probe.error : null
   const state: ClipLoadState = error ? 'error' : (outputState?.state ?? 'cold')
   const thumb = probe?.ok ? probe.meta.thumbUrl : null
+  const onPads = assigned > 0 ? `\nOn ${assigned} pad${assigned === 1 ? '' : 's'}` : ''
 
   return (
     <div
@@ -76,7 +119,10 @@ const Pad = memo(function Pad({
         e.dataTransfer.setData(CLIP_DRAG_TYPE, clip.id)
         e.dataTransfer.effectAllowed = 'copy'
       }}
-      title={`${clip.name}\n${error ?? `${STATE_LABEL[state]}\nClick to select · double-click to play now · drag onto a pad`}`}
+      title={`${clip.name}\n${
+        error ??
+        `${STATE_LABEL[state]}${onPads}\nClick to select · double-click to play now · drag onto a pad`
+      }`}
       // A click only selects: browsing the library never changes the show by accident.
       // (Enter and Space stay with the global tempo shortcuts: beat 1 and tap.)
       onClick={() => onSelect(clip.id)}
@@ -96,11 +142,22 @@ const Pad = memo(function Pad({
         ) : (
           <div className="pad-placeholder">{error ? '⚠' : '…'}</div>
         )}
-        {probe?.ok && probe.meta.hasAlpha && (
-          <span className="badge alpha" title="Has transparency">
-            α
-          </span>
-        )}
+        <div className="pad-badges">
+          {probe?.ok && probe.meta.hasAlpha && (
+            <span className="badge alpha" title="Has transparency">
+              α
+            </span>
+          )}
+          {assigned > 0 && (
+            <span
+              className="badge assigned"
+              data-testid="assigned"
+              title={`On ${assigned} pad${assigned === 1 ? '' : 's'}`}
+            >
+              ▣ {assigned}
+            </span>
+          )}
+        </div>
         <span className={`dot ${state}`} aria-label={STATE_LABEL[state]} />
         {selected && !error && (
           <button
@@ -125,32 +182,42 @@ const Pad = memo(function Pad({
         >
           ✕
         </button>
-      </div>
-      <div className="pad-name">{clip.name}</div>
-      <div className="pad-meta">
-        {error ? <span className="pad-error">{error}</span> : metaLine(clip, probe)}
+        {/* Name and details sit on the thumbnail, so they're never scrolled out of view. */}
+        <div className="pad-caption">
+          <div className="pad-name">{clip.name}</div>
+          <div className="pad-meta">
+            {error ? <span className="pad-error">{error}</span> : metaLine(clip, probe)}
+          </div>
+        </div>
       </div>
     </div>
   )
 })
+
+// ---- Panel --------------------------------------------------------------------
 
 interface Props {
   library: LibraryState
   onPlay(id: string): void
   selectedId: string | null
   onSelect(id: string | null): void
+  /** Pads per clip id. */
+  assigned: Record<string, number>
 }
 
-export function LibraryPanel({ library, onPlay, selectedId, onSelect }: Props) {
+export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }: Props) {
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  const [confirmClear, setConfirmClear] = useState(false)
-  /** Paths removed by the last Clear, offered for undo for a few seconds. */
+  const [query, setQuery] = useState('')
+  const [chosenFilter, setFilter] = useState<Filter>('all')
+  /** A removal waiting for confirmation (clearing, or clips that pads use). */
+  const [confirm, setConfirm] = useState<{ ids: string[]; text: string; action: string } | null>(
+    null,
+  )
+  /** Paths removed last, offered for undo for a few seconds. */
   const [undo, setUndo] = useState<{ paths: string[]; count: number } | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { remove } = library
-  const removeOne = useCallback((id: string) => remove([id]), [remove])
-  const select = useCallback((id: string) => onSelect(id), [onSelect])
+  const { remove, clips } = library
 
   useEffect(
     () => () => {
@@ -159,21 +226,41 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect }: Props) {
     [],
   )
 
-  const clearAll = () => {
-    const paths = library.clips.map((c) => c.path)
-    remove(library.clips.map((c) => c.id))
-    setConfirmClear(false)
-    onSelect(null)
-    setUndo({ paths, count: paths.length })
-    if (undoTimer.current) clearTimeout(undoTimer.current)
-    undoTimer.current = setTimeout(() => setUndo(null), UNDO_MS)
-  }
+  /** Remove clips, offering Undo (ids come from paths, so re-importing restores pads too). */
+  const removeWithUndo = useCallback(
+    (ids: string[]) => {
+      const gone = clips.filter((c) => ids.includes(c.id))
+      if (gone.length === 0) return
+      remove(gone.map((c) => c.id))
+      if (selectedId && ids.includes(selectedId)) onSelect(null)
+      setConfirm(null)
+      setUndo({ paths: gone.map((c) => c.path), count: gone.length })
+      if (undoTimer.current) clearTimeout(undoTimer.current)
+      undoTimer.current = setTimeout(() => setUndo(null), UNDO_MS)
+    },
+    [clips, remove, selectedId, onSelect],
+  )
 
-  const undoClear = () => {
+  const removeOne = useCallback(
+    (id: string) => {
+      const n = assigned[id] ?? 0
+      const clip = clips.find((c) => c.id === id)
+      if (n > 0 && clip) {
+        setConfirm({
+          ids: [id],
+          text: `${clip.name} is on ${n} pad${n === 1 ? '' : 's'}. Remove it from the library? Those pads will be empty until it's added back.`,
+          action: 'Remove',
+        })
+      } else removeWithUndo([id])
+    },
+    [assigned, clips, removeWithUndo],
+  )
+  const select = useCallback((id: string) => onSelect(id), [onSelect])
+
+  const undoRemove = () => {
     if (!undo) return
     if (undoTimer.current) clearTimeout(undoTimer.current)
     setUndo(null)
-    // Clip ids come from file paths, so re-importing restores pad assignments too.
     request({ type: 'importPaths', paths: undo.paths }, 'imported').catch((e: Error) =>
       setNotice(`Undo failed: ${e.message}`),
     )
@@ -196,7 +283,20 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect }: Props) {
     if (paths.length > 0) runImport(request({ type: 'importPaths', paths }, 'imported'))
   }
 
-  const { clips } = library
+  const categories = new Map(clips.map((c) => [c.id, categoryOf(c, library)]))
+  const counts = Object.fromEntries(
+    FILTERS.map((f) => [
+      f,
+      f === 'all' ? clips.length : clips.filter((c) => categories.get(c.id) === f).length,
+    ]),
+  ) as Record<Filter, number>
+  // A filter that no longer matches anything (say, after removing the broken clips) falls back to All.
+  const filter: Filter = chosenFilter !== 'all' && counts[chosenFilter] === 0 ? 'all' : chosenFilter
+  const shown = clips.filter(
+    (c) => (filter === 'all' || categories.get(c.id) === filter) && matches(c, query),
+  )
+  const broken = clips.filter((c) => categories.get(c.id) === 'broken')
+
   return (
     <section
       className={`panel library${dragging ? ' dragging' : ''}`}
@@ -217,6 +317,16 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect }: Props) {
             {clips.length}
           </span>
         </h2>
+        {clips.length > 0 && (
+          <input
+            className="library-search"
+            type="search"
+            placeholder="Search…"
+            aria-label="Search clips"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        )}
         <div className="row">
           <button
             onClick={() => runImport(request({ type: 'pickAndImport', mode: 'files' }, 'imported'))}
@@ -230,22 +340,54 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect }: Props) {
           >
             Add folder…
           </button>
-          {clips.length > 0 && !confirmClear && (
-            <button className="subtle" onClick={() => setConfirmClear(true)}>
+          {clips.length > 0 && (
+            <button
+              className="subtle"
+              onClick={() =>
+                setConfirm({
+                  ids: clips.map((c) => c.id),
+                  text: `Remove all ${clips.length} clips from the library? Files on disk are not touched.`,
+                  action: 'Remove all',
+                })
+              }
+            >
               Clear library…
             </button>
           )}
         </div>
       </div>
-      {confirmClear && (
-        <div className="confirm-bar" role="alertdialog" aria-label="Confirm clearing the library">
-          <span>
-            Remove all {clips.length} clips from the library? Files on disk are not touched.
-          </span>
-          <button className="danger" onClick={clearAll}>
-            Remove all
+      {clips.length > 0 && (
+        <div className="library-filters" role="group" aria-label="Clip filter">
+          {FILTERS.map((f) =>
+            f !== 'all' && counts[f] === 0 ? null : (
+              <button
+                key={f}
+                className={`chip${filter === f ? ' on' : ''}${f === 'broken' ? ' bad' : ''}`}
+                aria-pressed={filter === f}
+                onClick={() => setFilter(f)}
+              >
+                {FILTER_LABELS[f]} <span className="chip-count">{counts[f]}</span>
+              </button>
+            ),
+          )}
+          {broken.length > 0 && (
+            <button
+              className="subtle remove-broken"
+              title="Remove the clips that can't be played"
+              onClick={() => removeWithUndo(broken.map((c) => c.id))}
+            >
+              Remove {broken.length} broken
+            </button>
+          )}
+        </div>
+      )}
+      {confirm && (
+        <div className="confirm-bar" role="alertdialog" aria-label="Confirm removing clips">
+          <span>{confirm.text}</span>
+          <button className="danger" onClick={() => removeWithUndo(confirm.ids)}>
+            {confirm.action}
           </button>
-          <button onClick={() => setConfirmClear(false)}>Cancel</button>
+          <button onClick={() => setConfirm(null)}>Cancel</button>
         </div>
       )}
       {undo && (
@@ -253,7 +395,7 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect }: Props) {
           <span>
             Removed {undo.count} clip{undo.count === 1 ? '' : 's'}.
           </span>
-          <button onClick={undoClear}>Undo</button>
+          <button onClick={undoRemove}>Undo</button>
         </div>
       )}
       {notice && (
@@ -265,16 +407,31 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect }: Props) {
         <div className="empty-library">
           Drop clips or folders here. MP4, WebM, MOV, GIF, WebP, APNG, PNG and JPEG are supported.
         </div>
+      ) : shown.length === 0 ? (
+        <div className="empty-library small">
+          No clips match.{' '}
+          <button
+            className="link"
+            onClick={() => {
+              setQuery('')
+              setFilter('all')
+            }}
+          >
+            Show all
+          </button>
+        </div>
       ) : (
         <div className="pad-grid">
-          {clips.map((clip) => (
+          {shown.map((clip) => (
             <Pad
               key={clip.id}
               clip={clip}
               probe={library.probes[clip.id]}
+              error={errorOf(clip, library)}
               outputState={library.outputStates[clip.id]}
               playing={library.playingId === clip.id}
               selected={selectedId === clip.id}
+              assigned={assigned[clip.id] ?? 0}
               onSelect={select}
               onPlay={onPlay}
               onRemove={removeOne}

@@ -4,7 +4,9 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test'
-import { resolve } from 'node:path'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 export const FIXTURES = resolve(__dirname, '../../fixtures')
 const MAIN = resolve(__dirname, '../../out/main/index.js')
@@ -71,7 +73,11 @@ export interface AppHandles {
 }
 
 export async function launchApp(extraArgs: string[] = []): Promise<AppHandles> {
-  const app = await electron.launch({ args: [MAIN, ...extraArgs] })
+  const app = await electron.launch({
+    args: [MAIN, ...extraArgs],
+    // A fresh profile per launch: first-run state, no leftovers from earlier runs.
+    env: { ...process.env, VEEJUS_USER_DATA: mkdtempSync(join(tmpdir(), 'veejus-test-')) },
+  })
   const find = async (title: string) => {
     await expect
       .poll(async () => {

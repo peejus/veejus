@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { DisplayInfo, LayerSettings } from '@shared/protocol'
 import type { FxScope } from '@shared/fx'
 import { hexToRgb } from '@shared/color'
@@ -16,6 +16,7 @@ import { LibraryPanel } from './LibraryPanel'
 import { ClipInspector } from './PlaybackPanel'
 import { SetupDrawer, type SetupTab } from './SetupDrawer'
 import { ShortcutSheet, useShortcutSheet } from './ShortcutSheet'
+import { FirstRun } from './FirstRun'
 import { useAudio } from './useAudio'
 import { useBeat, useBeatShortcuts } from './useBeat'
 import { useLibrary } from './useLibrary'
@@ -159,6 +160,14 @@ export function App() {
           : { state: 'warn', text: 'Audio: off' }
 
   const clip = library.clips.find((c) => c.id === selectedClip)
+  /** How many pads (all banks) play each clip. */
+  const assigned = useMemo(() => {
+    const n: Record<string, number> = {}
+    for (const bank of pads.banks)
+      for (const p of bank)
+        if (p.source?.kind === 'clip') n[p.source.clipId] = (n[p.source.clipId] ?? 0) + 1
+    return n
+  }, [pads.banks])
   const sel = pads.selected
 
   return (
@@ -223,6 +232,28 @@ export function App() {
 
       <div className="workspace">
         <main className="main-area">
+          <FirstRun
+            steps={[
+              {
+                done: library.clips.length > 0,
+                label: 'Clips added',
+                action: 'Add a folder of clips',
+                onAction: () => run(request({ type: 'pickAndImport', mode: 'folder' }, 'imported')),
+              },
+              {
+                done: audio.status.state === 'running',
+                label: 'Audio input on',
+                action: 'Choose the audio input',
+                onAction: () => openSetup('audio'),
+              },
+              {
+                done: link.state.fullscreen || (!!outputDisplay && !outputDisplay.primary),
+                label: 'Output screen set',
+                action: 'Choose the output screen',
+                onAction: () => openSetup('output'),
+              },
+            ]}
+          />
           <PadGrid
             pads={pads}
             beat={beat}
@@ -242,6 +273,7 @@ export function App() {
             onPlay={playClip}
             selectedId={selectedClip}
             onSelect={selectClip}
+            assigned={assigned}
           />
         </main>
 

@@ -249,6 +249,101 @@ test('~ attaches a modulator in place, and the mixer fader shows a moving ghost'
   await expect(ghost).toBeHidden()
 })
 
+const filter = (name: RegExp) =>
+  h.control.getByRole('group', { name: 'Clip filter' }).getByRole('button', { name })
+const tiles = () => h.control.getByTestId('pad')
+
+test('library search and type filters narrow the clips', async () => {
+  const total = await tiles().count()
+  await h.control.getByLabel('Search clips').fill('wave')
+  await expect(tiles()).toHaveCount(1)
+  await expect(tiles().first()).toHaveAttribute('data-clip-name', 'wave.webp')
+  await h.control.getByLabel('Search clips').fill('zzz-nothing')
+  await expect(h.control.getByText('No clips match.')).toBeVisible()
+  await h.control.getByRole('button', { name: 'Show all' }).click()
+  await expect(tiles()).toHaveCount(total)
+  await filter(/^Video/).click()
+  for (const name of await tiles().evaluateAll((els) =>
+    els.map((e) => e.getAttribute('data-clip-name')),
+  )) {
+    expect(name).toMatch(/\.(mp4|webm|mov)$/)
+  }
+  await filter(/^All/).click()
+  await expect(tiles()).toHaveCount(total)
+})
+
+test('clip names sit on the thumbnail; tiles show how many pads use them', async () => {
+  const bounce = pad(h.control, 'bounce.png')
+  await expect(bounce.locator('.pad-media .pad-name')).toHaveText('bounce.png')
+  // Auto-fill put bounce.png on one pad.
+  await expect(bounce.getByTestId('assigned')).toHaveText('▣ 1')
+  await expect(bounce).toHaveAttribute('title', /On 1 pad/)
+  // Removing a clip that a pad uses asks first.
+  await bounce.hover()
+  await h.control.getByRole('button', { name: 'Remove bounce.png' }).click()
+  const confirm = h.control.getByRole('alertdialog', { name: 'Confirm removing clips' })
+  await expect(confirm).toContainText('is on 1 pad')
+  await confirm.getByRole('button', { name: 'Cancel' }).click()
+  await expect(bounce).toBeVisible()
+})
+
+test('broken clips are grouped and can be removed together, with Undo', async () => {
+  await expect
+    .poll(async () => (await filter(/^Broken/).textContent()) ?? '')
+    .toMatch(/Broken\s*\d/)
+  await filter(/^Broken/).click()
+  const broken = await tiles().count()
+  expect(broken).toBeGreaterThanOrEqual(2) // corrupt.gif, corrupt.mp4 (+ prores.mov once tried)
+  for (const t of await tiles().all()) await expect(t).toHaveAttribute('data-state', 'error')
+  await h.control.getByRole('button', { name: `Remove ${broken} broken` }).click()
+  await expect(filter(/^Broken/)).toHaveCount(0)
+  // The emptied filter falls back to All.
+  await expect(filter(/^All/)).toHaveAttribute('aria-pressed', 'true')
+  await h.control.getByRole('button', { name: 'Undo' }).click()
+  await expect.poll(async () => (await filter(/^Broken/).count()) > 0).toBe(true)
+  await filter(/^All/).click()
+})
+
+test('a first-run checklist guides setup until it is done or hidden', async () => {
+  const strip = h.control.getByTestId('first-run')
+  await expect(strip).toBeVisible()
+  await expect(strip.locator('li.done')).toContainText('Clips added')
+  await strip.getByRole('button', { name: 'Choose the audio input' }).click()
+  await expect(h.control.getByRole('tab', { name: 'Audio', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await closeSetup(h.control)
+  await strip.getByRole('button', { name: 'Hide' }).click()
+  await expect(strip).toHaveCount(0)
+})
+
+test('below 1100 px wide, the library becomes a single scrolling row', async () => {
+  await h.app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() !== 'Veejus Output')!
+    w.setContentSize(1024, 700)
+  })
+  await expect
+    .poll(() =>
+      h.control.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth),
+    )
+    .toBe(1024)
+  const flow = await h.control.locator('.library .pad-grid').evaluate(
+    (el) =>
+      (
+        globalThis as unknown as {
+          getComputedStyle(e: unknown): { gridAutoFlow: string }
+        }
+      ).getComputedStyle(el).gridAutoFlow,
+  )
+  expect(flow).toBe('column')
+  // The mixer keeps its five strips in one row.
+  const tops = await h.control
+    .locator('.mixer .strip')
+    .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))
+  expect(new Set(tops).size).toBe(1)
+})
+
 test('pads, mixer, preview, beat and context all fit a 1366×768 laptop screen', async () => {
   await h.app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() !== 'Veejus Output')!

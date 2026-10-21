@@ -37,6 +37,9 @@ if (process.env['VEEJUS_HW_VIDEO_DECODE'] !== '1') {
   app.commandLine.appendSwitch('disable-accelerated-video-decode')
 }
 registerMediaScheme()
+// Tests run each launch in a fresh profile so window storage never leaks between runs (or
+// into a performer's own settings).
+if (process.env['VEEJUS_USER_DATA']) app.setPath('userData', process.env['VEEJUS_USER_DATA'])
 
 const library = new Library()
 let controlWin: BrowserWindow | null = null

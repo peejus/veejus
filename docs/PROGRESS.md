@@ -1186,7 +1186,7 @@ Step 3 of `docs/UX_REVIEW.md`.
 
 ---
 
-## UX-4: Effects in the mixer (completed 2026-10-20, awaiting approval)
+## UX-4: Effects in the mixer (completed and approved 2026-10-20)
 
 Step 4 of `docs/UX_REVIEW.md`. The mixer's FX buttons and active dots already came with UX-2. This step reworks the effects panel those buttons open.
 
@@ -1267,3 +1267,106 @@ All effect, modulator and mixer sliders now support:
 - **Ghosts lag the output by up to about 50 ms**, since they're sent 20 times a second. That's fine for seeing what's happening, but they aren't frame-exact.
 - **Shift-drag starts from where the thumb is,** so Shift-clicking somewhere else on the track doesn't jump there; that's intended for fine-tuning.
 - **The effects panel is still long** when a layer has several effects, each with its modulators open. Collapsing an effect card is a possible follow-up.
+
+**Approval notes (2026-10-20):** UX-4 approved; UX-5 was requested next.
+
+---
+
+## UX-5: Library and visual polish (completed 2026-10-20, awaiting approval)
+
+The last step of `docs/UX_REVIEW.md`. With it, all five steps of the review are done.
+
+### What changed
+
+**Library**
+
+- **Search:** a search box matches clip names and folders.
+- **Filter chips** with counts: **All**, **Video**, **GIF / animated**, **Stills**, **Broken**.
+  - A chip is hidden when nothing matches it.
+  - If the chip you're on empties (for example, after removing the broken clips), the view falls back to All.
+  - When nothing matches the search, the library says "No clips match" with a **Show all** link.
+- **Names on the thumbnail:** the name and details sit on a dark band at the bottom of each tile, so they're always visible even when only one row of clips fits. Broken clips show their reason in red there, and in full in the tooltip.
+- **Broken clips:**
+  - A **Remove N broken** button removes them all at once.
+  - It offers **Undo** for 10 seconds, the same Undo bar that **Clear library…** uses.
+  - Removing a single clip also offers Undo now.
+- **Pad counts:** a **▣ N** badge on each tile shows how many pads (across all banks) use that clip; the tooltip says "On N pads".
+  - Removing a clip that pads use now **asks first**: "bounce.png is on 1 pad. Remove it…?"
+
+**First run**
+
+- A slim **Get ready** strip above the pads lists three steps:
+  1. Add a folder of clips (opens the folder picker).
+  2. Choose the audio input (opens Setup → Audio).
+  3. Choose the output screen (opens Setup → Output).
+- Each step gets a green ✓ when done. "Done" is checked live: there are clips in the library, an audio input is running, and the output is fullscreen or on a non-primary display.
+- The strip disappears once all three are done, or when you press **Hide** (remembered).
+
+**Color meanings**
+
+Defined once in the stylesheet (`--live`, `--pending`, `--select`, `--danger`) and applied everywhere:
+
+| Color   | Means                                                                                                   |
+| ------- | ------------------------------------------------------------------------------------------------------- |
+| Green   | playing (pads, and the library clip on the output)                                                      |
+| Amber   | queued or armed (pads), and the **drop banner**, which was magenta and is now amber/orange              |
+| Magenta | the beat (the beat lights, which were cyan) and the selection (pads and library clips, which were cyan) |
+| Red     | destructive and error                                                                                   |
+
+This frees cyan to mean only **Overlay B**.
+
+**Type and contrast**
+
+- No readable text below 12 px: meta lines, band names, tempo details, pad labels and effect hints were 9–11 px.
+- Every text color was checked against the panel background. All readable text is at least 4.5:1; the dim "CLIP" meter label was raised.
+
+**Window behavior**
+
+- The window itself never scrolls. If the left column (checklist, drop banner, pads, mixer, library) needs more room than the window has, it scrolls on its own; the library always keeps about one row of clips (210 px).
+- **Below 1100 px wide:**
+  - The right column narrows to 320 px.
+  - The library becomes a single horizontally scrolling row.
+  - The mixer keeps its five strips side by side, dropping the now-playing line and the % readouts to save height.
+
+**Tests run in their own profile**
+
+- Each test launch gets a fresh, temporary app profile (the `VEEJUS_USER_DATA` environment variable).
+- Window storage (the checklist, "More settings") no longer leaks between test runs or into your own settings. This fixes the known issue from UX-3.
+
+### Test results
+
+- `npm run typecheck`, `npm run lint` and Prettier: clean.
+- `npm run test:unit`: **183 passing**.
+- `npm run test:e2e`: **98 passing**. New in `layout.spec.ts`:
+  - **Search and filters:** search narrows to one clip; "No clips match" and **Show all** work; **Video** shows only videos.
+  - **Tiles:** the name is on the thumbnail, the **▣ 1** badge and "On 1 pad" tooltip appear, and removing a pad-assigned clip asks first (Cancel keeps it).
+  - **Broken clips:** **Broken** shows only error tiles; **Remove N broken** removes them and the view falls back to All; **Undo** brings them back.
+  - **First-run strip:** the clips step is checked off, the audio step opens Setup → Audio, and **Hide** removes the strip.
+  - **At 1024×700:** the library is a single scrolling row and the five mixer strips stay on one line.
+- **Performance:** 1080p with effects is unchanged, at **60.0 fps** with 0 dropped frames.
+
+### Manual test script
+
+1. Start fresh (or clear the app's local storage). **Expected:** the **Get ready** strip shows three steps. Do each one and watch them tick off. The strip goes away after the third, or press **Hide**.
+2. Add `fixtures/media`, then **Auto-fill**.
+   - Type in **Search**, and try the **Video / GIF / Stills / Broken** chips.
+   - Under **Broken**, press **Remove N broken**, then **Undo**.
+3. Check that tiles show their names and a **▣ 1** on clips that are on pads. Hover a tile and press ✕. **Expected:** a clip on a pad asks before going.
+4. Arm a drop. **Expected:** the banner and the armed pad are amber. Select a pad or a clip: the outline is magenta. Playing things are green.
+5. Narrow the window below 1100 px. **Expected:** the library turns into one scrolling row, and the mixer stays in one line.
+
+### Decisions and defaults
+
+- **"Output screen set"** counts as done when the output is fullscreen or sits on a non-primary display. Leaving it windowed on the main screen keeps the reminder until you press **Hide**.
+- **Removing broken clips doesn't ask first:** they can't be played, and Undo is there.
+- **The drop banner is amber**, matching "armed / pending". The old magenta made it look like a selection.
+
+### Known issues / limitations
+
+- **The left column can scroll at 1366×768** when the **Get ready** strip and a drop banner are both showing; each adds about 40–50 px. Once the strip is done or hidden, the normal perform view fits without scrolling (tested).
+- **Mixer strip names truncate below about 1100 px** ("Backgr…"); hover shows the full name.
+- **The GIF / animated filter guesses from the file type** until a clip has been read: GIF and APNG count as animated, WebP as a still until its frame count is known.
+
+---
+
+The UX plan is complete. Next on the roadmap is **Phase 7: MIDI and external sync**.

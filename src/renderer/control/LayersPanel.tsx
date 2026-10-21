@@ -126,7 +126,9 @@ export function Mixer({ layers, fx, clips, fxOpen, onFx }: MixerProps) {
             style={{ '--layer-color': LAYER_COLORS[id] } as CSSProperties}
           >
             <div className="strip-top">
-              <span className="strip-name">{name}</span>
+              <span className="strip-name" title={name}>
+                {name}
+              </span>
               <button
                 className={`ms${cfg.muted ? ' on' : ''}`}
                 aria-label={`Mute ${name}`}
