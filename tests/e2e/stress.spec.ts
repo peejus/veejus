@@ -108,6 +108,8 @@ test('output preloads within budget and ready pads start within one frame', asyn
     const p = ready.nth((i * 7) % n)
     const id = await p.getAttribute('data-clip-id')
     await p.click()
+    const name = await p.getAttribute('data-clip-name')
+    await h.control.getByRole('button', { name: `Play ${name} on Background` }).click()
     await expect(h.control.getByTestId('start-latency')).toContainText(/^Last start: [01] frame/)
     await expect.poll(async () => (await readOutput(h.output)).current?.id).toBe(id)
   }
@@ -118,6 +120,8 @@ test('a cold clip loads on demand and plays', async () => {
   test.skip((await cold.count()) === 0, 'everything fit in the budget')
   const id = await cold.getAttribute('data-clip-id')
   await cold.click()
+  const name = await cold.getAttribute('data-clip-name')
+  await h.control.getByRole('button', { name: `Play ${name} on Background` }).click()
   await expect
     .poll(async () => {
       const cur = (await readOutput(h.output)).current

@@ -8,6 +8,7 @@ import {
   isValidTempoRange,
   type PhraseBars,
 } from '@shared/beat'
+import type { AudioEngineState } from '@shared/audio'
 import type { BeatLink } from './useBeat'
 
 const FLASH_MS = 120
@@ -93,7 +94,14 @@ function BpmEntry({ beat }: { beat: BeatLink }) {
   )
 }
 
-export function BeatPanel({ beat }: { beat: BeatLink }) {
+/** Bring the audio input picker into view and focus it. */
+function goToAudioInput(): void {
+  const panel = document.getElementById('audio-panel')
+  panel?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  panel?.querySelector<HTMLSelectElement>('select')?.focus({ preventScroll: true })
+}
+
+export function BeatPanel({ beat, audioState }: { beat: BeatLink; audioState: AudioEngineState }) {
   const s = beat.state
   const settings = s?.settings
   const locked = settings?.tempoMode === 'locked'
@@ -126,9 +134,24 @@ export function BeatPanel({ beat }: { beat: BeatLink }) {
           <span className={`mode-badge ${locked ? 'locked' : 'auto'}`} data-testid="tempo-mode">
             {locked ? 'LOCKED' : 'AUTO'}
           </span>
-          <span className="detected" data-testid="detected-bpm">
-            {s?.detectedBpm != null ? `detected ${s.detectedBpm.toFixed(1)}` : 'listening…'}
-          </span>
+          {audioState === 'running' ? (
+            <span className="detected" data-testid="detected-bpm">
+              {s?.detectedBpm != null ? `detected ${s.detectedBpm.toFixed(1)}` : 'listening…'}
+            </span>
+          ) : (
+            <button
+              className="link no-audio"
+              data-testid="no-audio"
+              title="Beat detection needs an audio input"
+              onClick={goToAudioInput}
+            >
+              {audioState === 'starting'
+                ? 'Starting audio…'
+                : audioState === 'error'
+                  ? 'Audio error: check input'
+                  : 'No audio input: choose one'}
+            </button>
+          )}
           <div className="confidence" title="How sure the detector is about the tempo">
             <div
               className="confidence-fill"
@@ -167,24 +190,24 @@ export function BeatPanel({ beat }: { beat: BeatLink }) {
         </button>
         <button
           data-testid="resync-button"
-          title="Now is beat 1 (Enter)"
+          title="Mark now as beat 1 of the bar (Enter)"
           onClick={() => beat.command({ type: 'resyncDownbeat' })}
         >
-          Resync 1
+          Beat 1
         </button>
         <button
           aria-label="Nudge earlier"
-          title="Nudge earlier (←)"
+          title="Move the beat grid earlier (←)"
           onClick={() => beat.command({ type: 'nudge', ms: -NUDGE_MS })}
         >
-          ◀
+          −{NUDGE_MS} ms
         </button>
         <button
           aria-label="Nudge later"
-          title="Nudge later (→)"
+          title="Move the beat grid later (→)"
           onClick={() => beat.command({ type: 'nudge', ms: NUDGE_MS })}
         >
-          ▶
+          +{NUDGE_MS} ms
         </button>
         <button
           aria-label="Halve tempo"
@@ -210,7 +233,7 @@ export function BeatPanel({ beat }: { beat: BeatLink }) {
         </button>
         <BpmEntry beat={beat} />
       </div>
-      <p className="hint">Space tap · Enter resync downbeat · ←/→ nudge {NUDGE_MS} ms</p>
+      <p className="hint">Space tap · Enter marks beat 1 · ←/→ nudge {NUDGE_MS} ms</p>
 
       {settings && (
         <details className="beat-settings">

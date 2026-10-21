@@ -43,7 +43,8 @@ export function App() {
   useBlackoutShortcut(layers)
   const { setBackground, send } = link
   const [color, setColor] = useState('#000000')
-  const [overlay, setOverlay] = useState(true)
+  // The overlay is visible to the audience, so it starts off.
+  const [overlay, setOverlay] = useState(false)
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
   const [error, setError] = useState<string | null>(null)
   const [layerSettings, setLayerSettings] = useState<LayerSettings>({
@@ -104,15 +105,6 @@ export function App() {
         <span className="metric" data-testid="output-fps">
           {stats ? `${stats.fps.toFixed(0)} fps` : '-- fps'}
         </span>
-        <span className="metric" data-testid="ping-ms">
-          IPC {link.pingMs !== null ? `${link.pingMs.toFixed(1)} ms` : '--'}
-        </span>
-        {mediaStats && (
-          <span className="metric" data-testid="media-stats">
-            {mediaStats.readyClips} ready · {(mediaStats.imageBytes / MB).toFixed(0)} MB images ·{' '}
-            {mediaStats.warmVideos}/{mediaStats.warmVideoLimit} videos
-          </span>
-        )}
       </header>
 
       <div className="workspace">
@@ -124,7 +116,7 @@ export function App() {
         <aside className="sidebar">
           <PreviewMonitor layers={layers} />
 
-          <BeatPanel beat={beat} />
+          <BeatPanel beat={beat} audioState={audio.status.state} />
 
           <PadEditor pads={pads} clips={library.clips} />
 
@@ -200,9 +192,6 @@ export function App() {
                   Show output
                 </button>
               )}
-              <label className="check">
-                <input type="checkbox" checked={overlay} onChange={toggleOverlay} /> Debug overlay
-              </label>
             </div>
             <p className="hint">In the output window: Esc exits fullscreen, F11 toggles it.</p>
 
@@ -239,7 +228,27 @@ export function App() {
           </section>
 
           <section className="panel">
-            <h2>Output frame timing</h2>
+            <h2>Diagnostics</h2>
+            <label className="check">
+              <input type="checkbox" checked={overlay} onChange={toggleOverlay} /> Debug overlay on
+              the output
+            </label>
+            <p className="hint">The overlay is drawn over the show, so the audience sees it.</p>
+            <dl className="facts">
+              <dt>IPC ping</dt>
+              <dd data-testid="ping-ms">
+                IPC {link.pingMs !== null ? `${link.pingMs.toFixed(1)} ms` : '--'}
+              </dd>
+              {mediaStats && (
+                <>
+                  <dt>Media</dt>
+                  <dd data-testid="media-stats">
+                    {mediaStats.readyClips} ready · {(mediaStats.imageBytes / MB).toFixed(0)} MB
+                    images · {mediaStats.warmVideos}/{mediaStats.warmVideoLimit} videos
+                  </dd>
+                </>
+              )}
+            </dl>
             {stats ? (
               <dl className="facts">
                 <dt>FPS</dt>

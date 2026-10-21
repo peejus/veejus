@@ -769,12 +769,14 @@ select {
 
 .tempo-buttons {
   display: grid;
-  grid-template-columns: 2fr 2fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: 1.6fr 1.6fr 1.3fr 1.3fr 1fr 1fr;
   gap: 6px;
   margin-top: 12px;
 }
 .tempo-buttons button {
-  padding: 8px 4px;
+  padding: 8px 2px;
+  white-space: nowrap;
+  font-size: 13px;
 }
 .tempo-buttons .tap {
   font-weight: 700;
@@ -1207,4 +1209,57 @@ select {
 .fx-add select {
   flex: 1;
   min-width: 0;
+}
+
+/* ---- Library selection, play and clear confirmation (UX-1) ---- */
+
+.pad.selected {
+  border-color: #2bd6ff;
+}
+.pad.playing.selected {
+  border-color: var(--accent);
+}
+.pad-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 4px 12px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid #2bd6ff;
+}
+.library-hint {
+  margin: 0 0 8px;
+}
+.confirm-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #24242f;
+  font-size: 13px;
+}
+.confirm-bar span {
+  flex: 1;
+}
+button.danger {
+  background: #8a1f2a;
+  border-color: var(--bad);
+  color: #fff;
+}
+button.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #2bd6ff;
+  text-decoration: underline;
+  font-size: 12px;
+  cursor: pointer;
+}
+.no-audio {
+  color: #ffb31a !important;
 }

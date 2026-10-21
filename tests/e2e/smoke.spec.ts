@@ -74,12 +74,20 @@ test('changing the background in control changes the output', async () => {
     .toEqual([0x1a / 255, 0x6b / 255, 1])
 })
 
-test('debug overlay can be toggled', async () => {
+test('debug overlay starts hidden (the audience sees it) and can be toggled', async () => {
+  await expect(output.getByTestId('debug-overlay')).toBeHidden()
+  await expect(output.getByTestId('metronome')).toBeHidden()
+  await control.getByLabel('Debug overlay').click()
   await expect(output.getByTestId('debug-overlay')).toBeVisible()
+  await expect(output.getByTestId('metronome')).toBeVisible()
   await control.getByLabel('Debug overlay').click()
   await expect(output.getByTestId('debug-overlay')).toBeHidden()
-  await control.getByLabel('Debug overlay').click()
-  await expect(output.getByTestId('debug-overlay')).toBeVisible()
+})
+
+test('the tempo panel says when there is no audio input', async () => {
+  await expect(control.getByTestId('no-audio')).toHaveText('No audio input: choose one')
+  await control.getByTestId('no-audio').click()
+  await expect(control.locator('#audio-panel select').first()).toBeFocused()
 })
 
 test('output can go fullscreen and back', async () => {

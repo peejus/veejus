@@ -1,9 +1,11 @@
-import { memo, useCallback, useState, type DragEvent } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import type { ClipInfo, ClipLoadState } from '@shared/protocol'
 import type { ProbeResult } from './probe'
 import { bridge, request } from './bridge'
 import type { LibraryState } from './useLibrary'
 import { CLIP_DRAG_TYPE } from './PadGrid'
+
+const UNDO_MS = 10_000
 
 function formatDuration(ms: number): string {
   const s = ms / 1000
@@ -36,11 +38,22 @@ interface PadProps {
   probe: ProbeResult | undefined
   outputState: { state: ClipLoadState; error?: string } | undefined
   playing: boolean
+  selected: boolean
+  onSelect(id: string): void
   onPlay(id: string): void
   onRemove(id: string): void
 }
 
-const Pad = memo(function Pad({ clip, probe, outputState, playing, onPlay, onRemove }: PadProps) {
+const Pad = memo(function Pad({
+  clip,
+  probe,
+  outputState,
+  playing,
+  selected,
+  onSelect,
+  onPlay,
+  onRemove,
+}: PadProps) {
   const [hover, setHover] = useState(false)
   const error =
     outputState?.state === 'error' ? outputState.error : probe && !probe.ok ? probe.error : null
@@ -49,13 +62,14 @@ const Pad = memo(function Pad({ clip, probe, outputState, playing, onPlay, onRem
 
   return (
     <div
-      className={`pad state-${state}${playing ? ' playing' : ''}`}
+      className={`pad state-${state}${playing ? ' playing' : ''}${selected ? ' selected' : ''}`}
       data-testid="pad"
       data-clip-id={clip.id}
       data-clip-name={clip.name}
       data-state={state}
       role="button"
       aria-label={clip.name}
+      aria-pressed={selected}
       tabIndex={0}
       draggable={!error}
       onDragStart={(e) => {
@@ -63,13 +77,10 @@ const Pad = memo(function Pad({ clip, probe, outputState, playing, onPlay, onRem
         e.dataTransfer.effectAllowed = 'copy'
       }}
       title={`${clip.name}\n${error ?? STATE_LABEL[state]}`}
-      onClick={() => !error && onPlay(clip.id)}
-      onKeyDown={(e) => {
-        if ((e.key === 'Enter' || e.key === ' ') && !error) {
-          e.preventDefault()
-          onPlay(clip.id)
-        }
-      }}
+      // A click only selects: browsing the library never changes the show by accident.
+      // (Enter and Space stay with the global tempo shortcuts: beat 1 and tap.)
+      onClick={() => onSelect(clip.id)}
+      onDoubleClick={() => !error && onPlay(clip.id)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
@@ -91,6 +102,19 @@ const Pad = memo(function Pad({ clip, probe, outputState, playing, onPlay, onRem
           </span>
         )}
         <span className={`dot ${state}`} aria-label={STATE_LABEL[state]} />
+        {selected && !error && (
+          <button
+            className="pad-play"
+            aria-label={`Play ${clip.name} on Background`}
+            title="Play now on the Background layer (or double-click the clip)"
+            onClick={(e) => {
+              e.stopPropagation()
+              onPlay(clip.id)
+            }}
+          >
+            ▶ Play
+          </button>
+        )}
         <button
           className="pad-remove"
           aria-label={`Remove ${clip.name}`}
@@ -118,8 +142,41 @@ interface Props {
 export function LibraryPanel({ library, onPlay }: Props) {
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
+  /** Paths removed by the last Clear, offered for undo for a few seconds. */
+  const [undo, setUndo] = useState<{ paths: string[]; count: number } | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { remove } = library
   const removeOne = useCallback((id: string) => remove([id]), [remove])
+  const select = useCallback((id: string) => setSelectedId(id), [])
+
+  useEffect(
+    () => () => {
+      if (undoTimer.current) clearTimeout(undoTimer.current)
+    },
+    [],
+  )
+
+  const clearAll = () => {
+    const paths = library.clips.map((c) => c.path)
+    remove(library.clips.map((c) => c.id))
+    setConfirmClear(false)
+    setSelectedId(null)
+    setUndo({ paths, count: paths.length })
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    undoTimer.current = setTimeout(() => setUndo(null), UNDO_MS)
+  }
+
+  const undoClear = () => {
+    if (!undo) return
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    setUndo(null)
+    // Clip ids come from file paths, so re-importing restores pad assignments too.
+    request({ type: 'importPaths', paths: undo.paths }, 'imported').catch((e: Error) =>
+      setNotice(`Undo failed: ${e.message}`),
+    )
+  }
 
   const runImport = (p: ReturnType<typeof request<'imported'>>) => {
     p.then(({ result }) => {
@@ -172,13 +229,38 @@ export function LibraryPanel({ library, onPlay }: Props) {
           >
             Add folder…
           </button>
-          {clips.length > 0 && (
-            <button className="subtle" onClick={() => library.remove(clips.map((c) => c.id))}>
-              Clear
+          {clips.length > 0 && !confirmClear && (
+            <button className="subtle" onClick={() => setConfirmClear(true)}>
+              Clear library…
             </button>
           )}
         </div>
       </div>
+      {confirmClear && (
+        <div className="confirm-bar" role="alertdialog" aria-label="Confirm clearing the library">
+          <span>
+            Remove all {clips.length} clips from the library? Files on disk are not touched.
+          </span>
+          <button className="danger" onClick={clearAll}>
+            Remove all
+          </button>
+          <button onClick={() => setConfirmClear(false)}>Cancel</button>
+        </div>
+      )}
+      {undo && (
+        <div className="confirm-bar" role="status">
+          <span>
+            Removed {undo.count} clip{undo.count === 1 ? '' : 's'}.
+          </span>
+          <button onClick={undoClear}>Undo</button>
+        </div>
+      )}
+      {clips.length > 0 && (
+        <p className="hint library-hint">
+          Click to select · double-click or ▶ Play to show it on the Background now · drag onto a
+          pad to assign
+        </p>
+      )}
       {notice && (
         <p className="notice" data-testid="import-notice" onClick={() => setNotice(null)}>
           {notice}
@@ -197,6 +279,8 @@ export function LibraryPanel({ library, onPlay }: Props) {
               probe={library.probes[clip.id]}
               outputState={library.outputStates[clip.id]}
               playing={library.playingId === clip.id}
+              selected={selectedId === clip.id}
+              onSelect={select}
               onPlay={onPlay}
               onRemove={removeOne}
             />

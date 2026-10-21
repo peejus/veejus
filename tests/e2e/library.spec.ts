@@ -40,6 +40,7 @@ test.afterAll(async () => {
 
 async function play(name: string) {
   await pad(h.control, name).click()
+  await h.control.getByRole('button', { name: `Play ${name} on Background` }).click()
   await expect
     .poll(async () => {
       const cur = (await readOutput(h.output)).current
@@ -77,9 +78,9 @@ test('corrupt and unsupported files show an error instead of crashing', async ()
     await expect(pad(h.control, name)).toHaveAttribute('data-state', 'error', { timeout: 15_000 })
     await expect(pad(h.control, name).locator('.pad-error')).not.toBeEmpty()
   }
-  // Clicking a broken pad does nothing; the app keeps rendering.
+  // Double-clicking a broken pad does nothing; the app keeps rendering.
   const before = (await readOutput(h.output)).frameCount
-  await pad(h.control, 'corrupt.mp4').click()
+  await pad(h.control, 'corrupt.mp4').dblclick()
   await expect.poll(async () => (await readOutput(h.output)).frameCount).toBeGreaterThan(before + 5)
   expect((await readOutput(h.output)).current).toBeNull()
 })
@@ -199,4 +200,43 @@ test('hovering a pad shows a live preview', async () => {
   await expect
     .poll(() => video.evaluate((el) => (el as unknown as { currentTime: number }).currentTime))
     .toBeGreaterThan(0.2)
+})
+
+test('a single click only selects a clip; Play shows it', async () => {
+  const stop = h.control.getByRole('button', { name: 'Stop', exact: true })
+  if (await stop.isEnabled()) await stop.click()
+  await expect.poll(async () => (await readOutput(h.output)).current).toBeNull()
+  const tile = pad(h.control, 'bounce.png')
+  await tile.click()
+  await expect(tile).toHaveAttribute('aria-pressed', 'true')
+  await h.output.waitForTimeout(300)
+  expect((await readOutput(h.output)).current).toBeNull() // the show is untouched
+  const id = await tile.getAttribute('data-clip-id')
+  await h.control.getByRole('button', { name: 'Play bounce.png on Background' }).click()
+  await expect.poll(async () => (await readOutput(h.output)).current?.id).toBe(id)
+  // Selecting another clip moves the selection (and still doesn't change the show).
+  await pad(h.control, 'wave.webp').click()
+  await expect(tile).toHaveAttribute('aria-pressed', 'false')
+  await expect(pad(h.control, 'wave.webp')).toHaveAttribute('aria-pressed', 'true')
+  expect((await readOutput(h.output)).current?.id).toBe(id)
+  // Double-click is the shortcut for Play.
+  const wave = await pad(h.control, 'wave.webp').getAttribute('data-clip-id')
+  await pad(h.control, 'wave.webp').dblclick()
+  await expect.poll(async () => (await readOutput(h.output)).current?.id).toBe(wave)
+})
+
+test('clearing the library asks first and can be undone', async () => {
+  const count = await h.control.getByTestId('pad').count()
+  await h.control.getByRole('button', { name: 'Clear library…' }).click()
+  await h.control.getByRole('button', { name: 'Cancel' }).click()
+  await expect(h.control.getByTestId('pad')).toHaveCount(count)
+
+  const id = await pad(h.control, 'bounce.png').getAttribute('data-clip-id')
+  await h.control.getByRole('button', { name: 'Clear library…' }).click()
+  await h.control.getByRole('button', { name: 'Remove all' }).click()
+  await expect(h.control.getByTestId('pad')).toHaveCount(0)
+  await h.control.getByRole('button', { name: 'Undo' }).click()
+  await expect(h.control.getByTestId('pad')).toHaveCount(count)
+  // Same file, same id: pad assignments survive the round trip.
+  await expect(pad(h.control, 'bounce.png')).toHaveAttribute('data-clip-id', id!)
 })

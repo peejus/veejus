@@ -301,7 +301,7 @@ export function AudioPanel({ audio }: { audio: AudioLink }) {
   const { status, devices } = audio
   const current = sourceKey(status.source)
   return (
-    <section className="panel audio-panel">
+    <section className="panel audio-panel" id="audio-panel">
       <h2>Audio input</h2>
       <div className="row">
         <select

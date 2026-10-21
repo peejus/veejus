@@ -940,3 +940,54 @@ Modulation adds no measurable JavaScript time, and the effect passes fit in the 
 1. Are layer-level and master-level chains enough, or do you also want effects attached to individual pads (for example, a specific meme always enters with RGB split)?
 2. Should the presets be editable and saveable as your own presets? That would land with set saving in Phase 8.
 3. Do you want more "fun" presets, for example a **Hue Cycle** (hue rotate on a 4-bar saw), a **Wobble** (rotation on a 1-beat sine) or **Tunnel** (feedback with zoom)?
+
+---
+
+## UX-1: Live-safety quick wins (completed 2026-10-20, awaiting approval)
+
+This is the first step of the UX plan in `docs/UX_REVIEW.md`, done before Phase 7 at your request, using the recommended answers to the review's questions.
+
+### What changed
+
+- **The output starts clean.** The debug overlay and its metronome are hidden by default (they were drawn over the show at launch). The toggle moved to a new **Diagnostics** panel at the bottom of the sidebar ("Debug overlay on the output"), with a note that the audience sees it.
+- **A library click only selects.**
+  - A selected clip gets a blue outline and a **▶ Play** button, which shows it on the Background layer now. Double-clicking a clip is the same as ▶ Play.
+  - Browsing, hovering and selecting never touch the show.
+  - A hint line above the clips explains this.
+- **Clear library is guarded.** **Clear library…** opens a confirm bar: "Remove all N clips? Files on disk are not touched." **Remove all** is red, next to **Cancel**.
+  - After clearing, an **Undo** bar stays for 10 seconds. Undo re-imports the same files.
+  - Clip ids are derived from file paths, so pad assignments come back intact.
+- **The top bar shows only what matters live:** the output connection and fps. The IPC ping and media memory numbers moved into **Diagnostics**.
+- **Tempo panel:**
+  - **No audio input.** When no input is running, "listening…" is replaced by an amber **"No audio input: choose one"** link. It scrolls to the audio input picker and focuses it. "Starting audio…" and "Audio error: check input" cover the other states.
+  - **Plainer buttons.** **Resync 1** → **Beat 1** ("Mark now as beat 1 of the bar"). The unlabeled **◀ ▶** → **−10 ms / +10 ms** ("Move the beat grid earlier/later"). The shortcut hint now reads "Enter marks beat 1".
+
+### Test results
+
+- `npm run typecheck`, `npm run lint` and Prettier: clean.
+- `npm run test:unit`: **181 passing** (unchanged).
+- `npm run test:e2e`: **80 passing**. New:
+  - The debug overlay and metronome start hidden and can be toggled.
+  - The tempo panel shows "No audio input" and its link focuses the input picker.
+  - A single click selects without changing the output. ▶ Play shows the clip, selecting another clip leaves the show alone, and double-click plays.
+  - **Clear library…** can be cancelled, removes everything when confirmed, and **Undo** brings every clip back with the same ids.
+- **Updated:** the library and stress tests play clips via select + ▶ Play instead of a single click.
+
+### Manual test script
+
+1. Run `npm run dev`. **Expected:** the output window shows only the background color, with no stats text and no metronome. The tempo panel says **No audio input: choose one**. Click it, and the sidebar jumps to the input picker.
+2. Add `fixtures/media`. Click a clip. **Expected:** it gets a blue outline and a **▶ Play** button, and the output doesn't change.
+3. Press **▶ Play**, or double-click another clip. **Expected:** it shows on the output.
+4. Click **Clear library…** → **Cancel**: nothing happens. Then **Clear library…** → **Remove all** → **Undo**. **Expected:** every clip comes back, and pads assigned before still play.
+5. **Diagnostics** (bottom of the sidebar) → tick **Debug overlay on the output**. **Expected:** the overlay and metronome appear on the output. Untick to hide them.
+
+### Decisions and defaults
+
+- **Double-click is the mouse shortcut for ▶ Play.** Keyboard Enter and Space on a library tile do nothing: they stay with the global tempo shortcuts (beat 1, tap). This was already the case; the tile's own Enter handler never fired.
+- **Clicking a selected clip keeps it selected.** The ▶ Play button sits in the middle of the tile, so a "click again to deselect" would be easy to hit by mistake.
+- **Screen size:** the review's layout work (UX-2) will target laptop widths (≈1366–1920 px) first. Say if you mainly perform on a large external monitor.
+
+### Known issues / limitations
+
+- **Double-click start latency.** In the automated test, double-clicking a clip at the same instant the mouse first lands on it starts the video one frame later than ▶ Play. That's 2 frames instead of 1: the hover preview starts decoding the same file at that moment. When the pointer has rested on the tile for even 0.3 s, double-click starts within a frame too.
+- **The sidebar layout is unchanged.** Panels are still stacked; that is UX-2.
