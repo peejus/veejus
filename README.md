@@ -75,8 +75,15 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
   - **Master:** brightness and **Blackout** (`` ` `` key). The **Output preview** at the top right mirrors what the audience sees.
 - **Effects & modulation:** press **FX** on a mixer strip (a green dot means that layer has effects on). Its effects open in the context panel.
   - **Presets:** one click turns on **Kick Bump**, **Snare Strobe**, **Bar Shake** or **Drop Flash**.
-  - **Effects:** strobe/flash, RGB split, kaleidoscope, mirror, pixelate, zoom bump, shake, invert, hue rotate and feedback trails, applied in order (↑/↓ to reorder).
-  - **Modulators:** drive any number (opacity, scale, rotation, position, or any effect parameter) from a beat-synced **LFO** (sine, triangle, saw, square, random step; 1/16 note to 8 bars), a **beat envelope** (every beat, beats 2 & 4, bar, phrase, detected kick or snare/hat), or an **audio band** level. Each has an amount, a min..max range and invert.
+  - **Effects:** **+ Add effect** shows a card for each: strobe/flash, RGB split, kaleidoscope, mirror, pixelate, zoom bump, shake, invert, hue rotate, feedback trails. They apply in order (↑/↓ to reorder).
+  - **Make anything move with the music:** press **~** next to any effect setting, or under **Layer motion and opacity** for opacity, scale, rotation and position. A modulator opens right there. Its source is one of:
+    - a beat-synced **LFO** (sine, triangle, saw, square, random step; 1/16 note to 8 bars)
+    - a **beat envelope** (every beat, beats 2 & 4, bar, phrase, detected kick or snare/hat)
+    - an **audio band** level
+
+    Each modulator has an amount, a range it adds and invert. A pink **ghost** marker on the slider (and on the mixer fader for opacity) shows where the modulation is taking the value right now. **All modulators** lists them all.
+
+  - **Sliders:** double-click resets to the default, **Shift-drag** fine-tunes at a tenth of the speed, and clicking the number lets you type a value. This also works on the mixer faders.
 - **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. Hover a clip for a live preview. A click only **selects** it, so browsing never changes the show. To show it on the Background layer right away (unquantized), use the **▶ Play** button on the selected clip, or double-click it. **Clear library…** asks first and offers **Undo** for 10 seconds. The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
 - **Library plays:** selecting a library clip shows it in the context panel with **▶ Play on Background**, **Stop**, and how library plays look: loop or one-shot, speed (0.25×–4×), and fit (contain, cover, stretch, original size). Changes apply live. **Stop** clears the layer.
 - **Tempo:** the BPM is detected from the audio and the beat lights follow the kicks. **Space** taps tempo, **Enter** marks "now is beat 1", **← / →** nudge the grid 10 ms. You can also type a BPM, use ×2 / ÷2, or lock the tempo. **⚙ Setup → Clock** has phase correction, a latency offset (raise it if the visuals land after the kick you hear), phrase length and tempo range. If no audio input is selected, the tempo panel says so and opens **⚙ Setup → Audio**. The output's debug overlay (off by default, because the audience sees it; turn it on under **⚙ Setup → Diagnostics**) shows a 4-light metronome.

@@ -14,7 +14,7 @@ import {
   type Modulator,
   type PresetId,
 } from '@shared/fx'
-import { isOutputToControl } from '@shared/protocol'
+import { isOutputToControl, type FxLiveValues } from '@shared/protocol'
 import { bridge } from './bridge'
 
 export interface FxLink {
@@ -30,6 +30,10 @@ export interface FxLink {
   presetActive(scope: FxScope, preset: PresetId): boolean
   togglePreset(scope: FxScope, preset: PresetId): void
   clear(scope: FxScope): void
+  /** Latest modulated values from the output (see 'fxLive'); read without re-rendering. */
+  live: { current: FxLiveValues }
+  /** Subscribe to modulated-value updates. Returns an unsubscribe function. */
+  onLive(listener: (values: FxLiveValues) => void): () => void
 }
 
 let nextId = 0
@@ -40,6 +44,14 @@ const newId = (kind: 'e' | 'm' | 'p') =>
 export function useFx(): FxLink {
   const [config, setConfig] = useState<FxConfig>(emptyFxConfig)
   const latest = useRef(config)
+  const [live] = useState<{ current: FxLiveValues }>(() => ({ current: {} }))
+  const liveListeners = useRef(new Set<(v: FxLiveValues) => void>())
+  const onLive = useCallback((l: (v: FxLiveValues) => void) => {
+    liveListeners.current.add(l)
+    return () => {
+      liveListeners.current.delete(l)
+    }
+  }, [])
   useEffect(() => {
     latest.current = config
   })
@@ -47,11 +59,16 @@ export function useFx(): FxLink {
   useEffect(() => {
     const push = () => bridge.sendToOutput({ type: 'setFx', config: latest.current })
     const off = bridge.onOutputMessage((msg) => {
-      if (isOutputToControl(msg) && msg.type === 'outputReady') push()
+      if (!isOutputToControl(msg)) return
+      if (msg.type === 'outputReady') push()
+      else if (msg.type === 'fxLive') {
+        live.current = msg.values
+        for (const l of liveListeners.current) l(msg.values)
+      }
     })
     push()
     return off
-  }, [])
+  }, [live])
 
   const edit = useCallback((scope: FxScope, fn: (chain: FxChain) => FxChain) => {
     setConfig((prev) => {
@@ -213,5 +230,7 @@ export function useFx(): FxLink {
     presetActive,
     togglePreset,
     clear,
+    live,
+    onLive,
   }
 }

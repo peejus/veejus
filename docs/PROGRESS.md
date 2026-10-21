@@ -1095,7 +1095,7 @@ Step 2 of `docs/UX_REVIEW.md`: one screen for the show, and a drawer for setup.
 
 ---
 
-## UX-3: Pads and context editing (completed 2026-10-20, awaiting approval)
+## UX-3: Pads and context editing (completed and approved 2026-10-20)
 
 Step 3 of `docs/UX_REVIEW.md`.
 
@@ -1181,3 +1181,89 @@ Step 3 of `docs/UX_REVIEW.md`.
 
 - **Tests share your app profile.** The end-to-end tests launch the app with the normal user-data folder. Settings stored in the window (for now, only the "More settings" open state) are shared between test runs and your own use. This predates UX-3, but it's the first time something is stored there. Giving tests their own profile is a small follow-up.
 - **Mouse users can't set the drop timing before arming.** It appears once something is armed: arm, then pick. Keyboard arming works the same way.
+
+**Approval notes (2026-10-20):** UX-3 approved as built.
+
+---
+
+## UX-4: Effects in the mixer (completed 2026-10-20, awaiting approval)
+
+Step 4 of `docs/UX_REVIEW.md`. The mixer's FX buttons and active dots already came with UX-2. This step reworks the effects panel those buttons open.
+
+### What changed
+
+**Modulation lives on the parameter it moves**
+
+- Every effect setting has a **~** button next to it. Pressing it attaches a modulator (a 1-bar sine LFO, with a range that suits the parameter) and opens its editor right under that slider. You no longer pick a target from a list.
+  - When a setting is modulated, its label turns pink and the ~ lights up. A number appears on the ~ if it has several modulators.
+  - Pressing the ~ again hides or shows the editor.
+  - **+ another modulator here** stacks more modulators on the same setting; they add up.
+- **Layer motion and opacity:** a new section with the same rows for **opacity** (brightness on the Master), **scale**, **rotation**, **move X** and **move Y**.
+  - These have no slider of their own, since the base comes from the mixer and the pad. Instead they show a **live meter**.
+  - The section opens by itself when one of them is modulated.
+- **All modulators (N)** is a collapsed overview:
+  - one line per modulator: its target (changeable) and its source in words, for example "sine LFO, 1 bar" or "envelope on kick (detected)"
+  - a **show** link that opens it in place
+- The modulator editor says **Adds … to …** instead of "Range", which is what the numbers mean.
+
+**Ghosts: see the modulation**
+
+- While anything is modulated, the output sends the current modulated values back 20 times a second.
+- A modulated slider shows a pink **ghost thumb** where the value is right now.
+- **The mixer fader shows it too:** modulate Overlay A's opacity and its fader's ghost rides the LFO. The same goes for the Master brightness.
+- Ghosts move by changing the page directly, not through React, so fast modulation costs no control-window rendering.
+
+**Sliders for performers**
+
+All effect, modulator and mixer sliders now support:
+
+- **Double-click** to reset to the default.
+- **Shift-drag** to fine-tune at a tenth of the speed.
+- **Click the number** to type an exact value. Enter sets it; Esc cancels (and does _not_ stop the show).
+
+**Adding effects and presets**
+
+- **+ Add effect** opens a grid of **effect cards**: an icon, the name and a one-line description. For example, "Feedback / trails: trails and tunnels from earlier frames". These replace the dropdown and button.
+- **Preset tiles** show their description under the name, for example "Kick Bump: scale +10% on every kick".
+
+### Test results
+
+- `npm run typecheck`, `npm run lint` and Prettier: clean.
+- `npm run test:unit`: **183 passing**. New: `fxLive` validation, which accepts per-scope numeric values and rejects unknown scopes, NaN and strings.
+- `npm run test:e2e`: **93 passing**. New in `layout.spec.ts`:
+  - **Slider gestures:**
+    - Double-click resets Pixelate's block size to 16.
+    - Typing 40 sets it to exactly 40.
+    - A 100 px **Shift-drag** moves it by a tenth of what a plain drag would, checked against the value the output actually uses.
+  - **~ on Overlay A's opacity:**
+    - Attaches a modulator with its editor in place (1-bar period).
+    - The **mixer fader's ghost** appears and moves between two readings 0.4 s apart, staying within 0–1.
+    - Removing the modulator hides the ghost.
+- **Updated:** the effects tests add Invert from its card and modulate it with **~**, retarget it from the overview, and check Kick Bump through the lit ~ on Scale.
+- **Performance:** 1080p with effects is still **60 fps** with 0 dropped frames. Output JavaScript per frame is about 1.1–1.4 ms, including building the live values.
+
+### Manual test script
+
+1. Run `npm run dev`, fire a loop on Overlay A, and choose an audio source (the Test beat is fine).
+2. Press **FX** on Overlay A, then **+ Add effect** → **RGB split**.
+   - Press **~** next to **Offset**, and set the source to **Beat envelope → Kick**.
+   - **Expected:** the picture splits on every kick, and the Offset slider's pink ghost jumps with it.
+3. Open **Layer motion and opacity** and press **~** on **Opacity**. **Expected:** the clip pulses once per bar, and the **Overlay A fader in the mixer** shows a ghost riding up and down.
+4. On any slider:
+   - Double-click: it goes back to the default.
+   - Shift-drag: it moves slowly.
+   - Click the number, type a value and press Enter.
+5. Open **All modulators** to see everything at a glance, and use **show** to jump to one.
+
+### Decisions and defaults
+
+- **A new modulator is a 1-bar sine LFO.** Its range comes from the parameter: opacity −1..0 (pulses to nothing), scale 0..0.1, rotation 0..15°, moves 0..0.05, and effect settings 0..half their range.
+- **Live values are sent only while something is modulated**, plus one empty update when modulation stops. With no modulation there's no extra traffic.
+- **The ghost shows the final value**, base plus modulation, clamped to the slider's range.
+- **Layer-motion rows have no base slider:** the base for those comes from the mixer fader (opacity) and the pad's placement (scale, rotation, position).
+
+### Known issues / limitations
+
+- **Ghosts lag the output by up to about 50 ms**, since they're sent 20 times a second. That's fine for seeing what's happening, but they aren't frame-exact.
+- **Shift-drag starts from where the thumb is,** so Shift-clicking somewhere else on the track doesn't jump there; that's intended for fine-tuning.
+- **The effects panel is still long** when a layer has several effects, each with its modulators open. Collapsing an effect card is a possible follow-up.

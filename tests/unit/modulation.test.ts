@@ -26,7 +26,7 @@ import {
   type FxChain,
   type Modulator,
 } from '@shared/fx'
-import { isControlToOutput } from '@shared/protocol'
+import { isControlToOutput, isOutputToControl } from '@shared/protocol'
 
 const FRAME = 1000 / 60
 
@@ -310,5 +310,23 @@ describe('fx guards', () => {
       isModulator(mod({ source: { kind: 'lfo', shape: 'sine', periodBeats: 0, phase: 0 } })),
     ).toBe(false)
     expect(isModulator(mod({ id: 'bad id!' }))).toBe(false)
+  })
+})
+
+describe('fxLive message', () => {
+  it('accepts per-scope numeric values and rejects anything else', () => {
+    const ok = {
+      type: 'fxLive',
+      values: { overlayA: { opacity: 0.4, 'e1.amount': 3 }, master: {} },
+    }
+    expect(isOutputToControl(ok)).toBe(true)
+    expect(isOutputToControl({ type: 'fxLive', values: {} })).toBe(true)
+    expect(isOutputToControl({ type: 'fxLive', values: { nope: { opacity: 1 } } })).toBe(false)
+    expect(isOutputToControl({ type: 'fxLive', values: { overlayA: { opacity: NaN } } })).toBe(
+      false,
+    )
+    expect(isOutputToControl({ type: 'fxLive', values: { overlayA: { opacity: '1' } } })).toBe(
+      false,
+    )
   })
 })

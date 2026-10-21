@@ -1725,3 +1725,203 @@ kbd {
 .sheet-row {
   grid-template-columns: 170px 1fr;
 }
+
+/* ---- UX-4: smart sliders, modulation on parameters, effect cards ---- */
+
+.smart-slider {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.smart-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.smart-track input[type='range'] {
+  width: 100%;
+  min-width: 0;
+}
+.ghost-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  margin-top: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: rgba(255, 43, 214, 0.25);
+  pointer-events: none;
+  transition: left 45ms linear;
+}
+.ghost-thumb[hidden] {
+  display: none;
+}
+button.slider-value {
+  min-width: 40px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  text-align: right;
+  cursor: text;
+}
+button.slider-value:hover {
+  border-color: var(--border);
+}
+button.slider-value:disabled {
+  cursor: default;
+}
+.slider-edit {
+  width: 64px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 12px;
+  background: #2a2a38;
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}
+
+.fx-param-block.modulated > .fx-param .label {
+  color: var(--accent);
+}
+.mod-button {
+  flex: none;
+  min-width: 28px;
+  padding: 1px 6px;
+  font-weight: 800;
+  font-size: 13px;
+}
+.mod-button.on {
+  background: #3a2440;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.fx-param-mods {
+  margin: 2px 0 8px 12px;
+  padding-left: 8px;
+  border-left: 2px solid #5a3466;
+}
+.mod-item {
+  margin-top: 4px;
+}
+
+.live-meter {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.live-track {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: #2c2c3a;
+}
+.live-meter .slider-value {
+  min-width: 40px;
+  text-align: right;
+  font-size: 12px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  color: var(--muted);
+}
+
+.fx-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 8px;
+  text-align: left;
+}
+.fx-preset-name {
+  font-weight: 700;
+  font-size: 13px;
+}
+.fx-preset-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+.fx-preset.on .fx-preset-hint {
+  color: #3a1033;
+}
+
+.fx-add-button {
+  width: 100%;
+  margin-top: 8px;
+}
+.fx-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+.fx-card {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 6px;
+  padding: 6px 8px;
+  text-align: left;
+}
+.fx-card-icon {
+  grid-row: span 2;
+  font-size: 18px;
+  align-self: center;
+}
+.fx-card-name {
+  font-weight: 700;
+  font-size: 12px;
+}
+.fx-card-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.fx-motion,
+.mod-overview {
+  margin-top: 12px;
+}
+.fx-motion > summary,
+.mod-overview > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.mod-overview-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.mod-overview-row.muted {
+  opacity: 0.55;
+}
+.mod-overview-name {
+  min-width: 14px;
+  color: var(--muted);
+}
+.mod-overview-row select {
+  flex: 1;
+  min-width: 0;
+}
+.mod-overview-src {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Mixer faders with the smart slider. */
+.strip-fader .smart-slider button.slider-value {
+  min-width: 36px;
+}

@@ -240,7 +240,12 @@ test('Kick Bump (from the panel) bumps the clip on each detected kick', async ()
     'aria-pressed',
     'true',
   )
-  await expect(h.control.getByTestId('mod-1')).toBeVisible()
+  // The preset's modulator drives the layer's scale: its ~ button lights up.
+  await expect(h.control.getByRole('button', { name: 'Modulate Scale' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await expect(h.control.getByText('All modulators (1)')).toBeVisible()
   await expect.poll(async () => (await fxState()).lastKickPos).not.toBeNull()
 
   const kicksBefore = (await readOutput(h.output)).audio.onsetCounts.low
@@ -263,7 +268,7 @@ test('Kick Bump (from the panel) bumps the clip on each detected kick', async ()
 
   // Toggling the preset off removes it.
   await h.control.getByRole('button', { name: 'Kick Bump' }).click()
-  await expect(h.control.getByTestId('mod-1')).toHaveCount(0)
+  await expect(h.control.getByText(/All modulators/)).toHaveCount(0)
   await expect
     .poll(async () => (await readOutput(h.output)).layers.overlayA.transform!.h / baseH)
     .toBeCloseTo(1, 3)
@@ -274,15 +279,18 @@ test('the panel adds effects and modulators that reach the output', async () => 
   await reset()
   await grayWithRedSquare()
   await h.control.getByRole('button', { name: 'Master effects' }).click()
-  await h.control.getByLabel('Effect to add').selectOption('invert')
-  await h.control.getByRole('button', { name: 'Add effect' }).click()
+  await h.control.getByRole('button', { name: '+ Add effect' }).click()
+  await h.control.getByRole('button', { name: 'Add Invert' }).click()
   await expect(h.control.getByTestId('effect-invert')).toBeVisible()
   await expect.poll(async () => near(await px(0.05, 0.1), [0, 255, 255])).toBe(true)
 
-  // Modulate the invert mix with a square LFO, then turn the effect off from the panel.
-  await h.control.getByRole('button', { name: 'Add modulator' }).click()
-  await h.control.getByLabel('Modulator 1 target').selectOption({ label: 'Invert: Mix' })
+  // Modulate the invert mix (~ on its slider) with a square LFO, then turn the effect off.
+  await h.control.getByRole('button', { name: 'Modulate Invert Mix' }).click()
+  await expect(h.control.getByTestId('mod-1')).toBeVisible()
   await h.control.getByLabel('Modulator 1 shape').selectOption('square')
+  // Retargeting from the overview works too.
+  await h.control.getByText('All modulators (1)').click()
+  await expect(h.control.getByLabel('Modulator 1 target')).toHaveValue(/\.amount$/)
   await h.control.getByLabel('Enable Invert').uncheck()
   await expect.poll(async () => near(await px(0.05, 0.1), RED)).toBe(true)
   await h.control.getByRole('button', { name: 'Remove Invert' }).click()

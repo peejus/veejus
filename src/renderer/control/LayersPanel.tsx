@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import {
   BLEND_MODES,
   LAYER_IDS,
@@ -7,9 +7,12 @@ import {
   type BlendMode,
   type TakeoverMode,
 } from '@shared/layers'
-import type { FxScope } from '@shared/fx'
+import { FX_SCOPES, type FxScope } from '@shared/fx'
 import type { ClipInfo } from '@shared/protocol'
 import { chainActive } from './FxPanel'
+import { SmartSlider, type LiveSource } from './SmartSlider'
+
+const pct = (v: number) => `${Math.round(v * 100)}%`
 import { LAYER_COLORS } from './layerColors'
 import type { FxLink } from './useFx'
 import type { LayersLink } from './useLayers'
@@ -82,6 +85,19 @@ interface MixerProps {
 export function Mixer({ layers, fx, clips, fxOpen, onFx }: MixerProps) {
   const names = new Map(clips.map((c) => [c.id, c.name]))
   const { config, master } = layers
+  const { live, onLive } = fx
+  /** Fader ghosts: where opacity (brightness) modulation is taking each fader right now. */
+  const ghosts = useMemo(
+    () =>
+      Object.fromEntries(
+        FX_SCOPES.map((scope): [FxScope, LiveSource] => [
+          scope,
+          { get: () => live.current[scope]?.opacity, subscribe: (l) => onLive(l) },
+        ]),
+      ) as Record<FxScope, LiveSource>,
+    [live, onLive],
+  )
+  const opacityLive = (scope: FxScope) => ghosts[scope]
   const fxButton = (scope: FxScope, label: string) => {
     const active = chainActive(fx.config[scope])
     return (
@@ -149,16 +165,17 @@ export function Mixer({ layers, fx, clips, fxOpen, onFx }: MixerProps) {
                 : '—'}
             </div>
             <div className="strip-fader">
-              <input
-                type="range"
-                aria-label={`${name} opacity`}
+              <SmartSlider
+                aria={`${name} opacity`}
                 min={0}
                 max={1}
                 step={0.01}
                 value={cfg.opacity}
-                onChange={(e) => layers.setLayer(id, { opacity: Number(e.target.value) })}
+                defaultValue={1}
+                format={pct}
+                onChange={(v) => layers.setLayer(id, { opacity: v })}
+                live={opacityLive(id)}
               />
-              <code className="slider-value">{Math.round(cfg.opacity * 100)}%</code>
             </div>
             <div className="strip-bottom">
               <select
@@ -216,17 +233,17 @@ export function Mixer({ layers, fx, clips, fxOpen, onFx }: MixerProps) {
           <span className="strip-name">Master</span>
         </div>
         <div className="strip-fader">
-          <input
-            type="range"
-            aria-label="Master brightness"
-            title="Brightness"
+          <SmartSlider
+            aria="Master brightness"
             min={0}
             max={1}
             step={0.01}
             value={master.brightness}
-            onChange={(e) => layers.setMaster({ brightness: Number(e.target.value) })}
+            defaultValue={1}
+            format={pct}
+            onChange={(v) => layers.setMaster({ brightness: v })}
+            live={opacityLive('master')}
           />
-          <code className="slider-value">{Math.round(master.brightness * 100)}%</code>
         </div>
         <div className="strip-bottom">
           <button

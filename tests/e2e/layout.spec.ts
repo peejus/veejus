@@ -173,6 +173,82 @@ test('drop timing appears in the drop banner only while something is armed', asy
   await expect(banner).toBeHidden()
 })
 
+test('effect sliders: double-click resets, click the value to type, Shift-drag fine-tunes', async () => {
+  await h.control.getByRole('button', { name: 'Overlay B effects' }).click()
+  await context().getByRole('button', { name: '+ Add effect' }).click()
+  await context().getByRole('button', { name: 'Add Pixelate' }).click()
+  const card = context().getByTestId('effect-pixelate')
+  const slider = card.getByLabel('Pixelate Block size (px)', { exact: true })
+  const value = card.locator('button.slider-value')
+  await expect(value).toHaveText('16')
+  await slider.fill('64')
+  await expect(value).toHaveText('64')
+  await slider.dblclick()
+  await expect(value).toHaveText('16') // the default
+  await value.click()
+  await card.getByLabel('Exact value').fill('40')
+  await card.getByLabel('Exact value').press('Enter')
+  await expect(value).toHaveText('40')
+
+  // Shift-drag moves at a tenth of the speed: 100 px is a small, fractional change.
+  const fxAmount = () =>
+    h.output.evaluate(() => {
+      const st = (
+        globalThis as unknown as {
+          __veejusOutput: {
+            getState(): {
+              fx: { config: { overlayB: { effects: { params: { amount: number } }[] } } }
+            }
+          }
+        }
+      ).__veejusOutput.getState()
+      return st.fx.config.overlayB.effects[0]!.params.amount
+    })
+  await expect.poll(fxAmount).toBe(40)
+  const box = (await slider.boundingBox())!
+  const thumbX = box.x + 8 + ((40 - 1) / 127) * (box.width - 16)
+  await h.control.mouse.move(thumbX, box.y + box.height / 2)
+  await h.control.keyboard.down('Shift')
+  await h.control.mouse.down()
+  await h.control.mouse.move(thumbX + 100, box.y + box.height / 2, { steps: 5 })
+  await h.control.mouse.up()
+  await h.control.keyboard.up('Shift')
+  const normal = (100 / box.width) * 127 // what a plain drag would have moved
+  await expect.poll(fxAmount).toBeGreaterThan(40)
+  const fine = (await fxAmount()) - 40
+  expect(fine).toBeLessThan(normal / 5)
+  expect(fine).toBeCloseTo(normal / 10, 0)
+})
+
+test('~ attaches a modulator in place, and the mixer fader shows a moving ghost', async () => {
+  await h.control.getByRole('button', { name: 'Overlay A effects' }).click()
+  const motion = context().locator('details.fx-motion')
+  if ((await motion.getAttribute('open')) === null) await motion.locator('summary').click()
+  const tilde = context().getByRole('button', { name: 'Modulate Opacity' })
+  await expect(tilde).toHaveAttribute('aria-pressed', 'false')
+  await tilde.click()
+  await expect(tilde).toHaveAttribute('aria-pressed', 'true')
+  // Its editor opens right under the parameter (a 1-bar sine by default).
+  const editor = context().locator('.fx-param-mods .mod-item')
+  await expect(editor).toHaveCount(1)
+  await expect(editor.getByLabel(/Modulator \d+ period/)).toHaveValue('4')
+
+  const ghost = h.control.locator('[data-testid=layer-overlayA] .ghost-thumb')
+  await expect(ghost).toBeVisible()
+  const read = async () => Number(await ghost.getAttribute('data-value'))
+  const a = await read()
+  await h.control.waitForTimeout(400)
+  const b = await read()
+  expect(a).not.toBe(b) // it moves with the music
+  for (const v of [a, b]) {
+    expect(v).toBeGreaterThanOrEqual(0)
+    expect(v).toBeLessThanOrEqual(1)
+  }
+  // Removing the modulator removes the ghost.
+  await editor.getByRole('button', { name: /Remove Modulator/ }).click()
+  await expect(ghost).toBeHidden()
+})
+
 test('pads, mixer, preview, beat and context all fit a 1366×768 laptop screen', async () => {
   await h.app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() !== 'Veejus Output')!

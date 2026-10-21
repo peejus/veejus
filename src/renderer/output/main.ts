@@ -2,6 +2,7 @@ import { FrameStats } from '@core/frameStats'
 import {
   isControlToOutput,
   type ClipInfo,
+  type FxLiveValues,
   type LayerSettings,
   type LayerShowing,
   type OutputBridge,
@@ -35,6 +36,7 @@ const bridge = (window as unknown as { veejus: OutputBridge }).veejus
 const OVERLAY_INTERVAL_MS = 250
 const STATS_INTERVAL_MS = 500
 const BEAT_STATE_INTERVAL_MS = 100
+const FX_LIVE_INTERVAL_MS = 50
 const PREVIEW_INTERVAL_MS = 1000 / 15
 const PREVIEW_WIDTH = 320
 const MB = 1024 * 1024
@@ -283,6 +285,38 @@ let lastFrameAt: number | null = null
 let lastOverlayAt = 0
 let lastStatsAt = 0
 let lastBeatStateAt = 0
+let lastFxLiveAt = 0
+let fxLiveWasEmpty = true
+
+/**
+ * The modulated value of every modulated target, for the control's "ghost" thumbs: final
+ * opacity (layer) or brightness (master), transform offsets, and resolved effect parameters.
+ */
+function fxLiveValues(fx: Record<FxScope, ResolvedChain>): FxLiveValues {
+  const out: FxLiveValues = {}
+  for (const scope of FX_SCOPES) {
+    const mods = fxConfig[scope].mods.filter((m) => m.enabled)
+    if (mods.length === 0) continue
+    const r = fx[scope]
+    const values: Record<string, number> = {}
+    for (const { target } of mods) {
+      if (target === 'opacity') {
+        const base = scope === 'master' ? master.brightness : layersConfig.layers[scope].opacity
+        values[target] = clamp01(base + r.opacity)
+      } else if (target === 'scale' || target === 'rotation' || target === 'x' || target === 'y') {
+        values[target] = r[target]
+      } else {
+        const dot = target.indexOf('.')
+        const v = r.effects.find((e) => e.id === target.slice(0, dot))?.params[
+          target.slice(dot + 1)
+        ]
+        if (v !== undefined) values[target] = v
+      }
+    }
+    out[scope] = values
+  }
+  return out
+}
 
 /** Pixel reads requested by tests; served right after the next frame is drawn. */
 const pixelRequests: { fx: number; fy: number; resolve: (px: number[] | null) => void }[] = []
@@ -523,6 +557,14 @@ function frame(now: number): void {
     sendTriggerState(now)
   }
   sendLayerState()
+  if (now - lastFxLiveAt >= FX_LIVE_INTERVAL_MS) {
+    lastFxLiveAt = now
+    const values = fxLiveValues(fx)
+    const empty = Object.keys(values).length === 0
+    // Send while anything is modulated, plus one empty update when that stops.
+    if (!empty || !fxLiveWasEmpty) bridge.sendToControl({ type: 'fxLive', values })
+    fxLiveWasEmpty = empty
+  }
 
   if (pendingBackgroundAck) {
     pendingBackgroundAck = false

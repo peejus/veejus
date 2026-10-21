@@ -6,7 +6,7 @@
  */
 
 import type { ClipKind } from './mediaTypes'
-import { isFxConfig, type FxConfig } from './fx'
+import { FX_SCOPES, isFxConfig, type FxConfig, type FxScope } from './fx'
 import {
   isAnalysisSettings,
   isAudioDeviceList,
@@ -179,6 +179,13 @@ export type OutputToControl =
   | { type: 'previewFrame'; width: number; height: number; pixels: Uint8Array }
   /** What each layer shows, on every change. */
   | { type: 'layerState'; layers: Record<LayerId, LayerShowing> }
+  /**
+   * Current modulated values (about 20 per second), per scope, keyed by modulation target
+   * ('opacity', 'scale', '<effectId>.<param>' ...). Only modulated targets are included.
+   */
+  | { type: 'fxLive'; values: FxLiveValues }
+
+export type FxLiveValues = Partial<Record<FxScope, Record<string, number>>>
 
 export interface LayerShowing {
   clipId: string | null
@@ -376,6 +383,8 @@ export function isOutputToControl(v: unknown): v is OutputToControl {
         v.pixels instanceof Uint8Array &&
         v.pixels.length === v.width * v.height * 4
       )
+    case 'fxLive':
+      return isFxLiveValues(v.values)
     case 'layerState':
       return (
         isObj(v.layers) &&
@@ -437,4 +446,15 @@ export interface OutputBridge {
   onControlMessage(handler: (msg: ControlToOutput) => void): () => void
   onLibrary(handler: (clips: ClipInfo[]) => void): () => void
   getLibrary(): Promise<ClipInfo[]>
+}
+
+function isFxLiveValues(v: unknown): v is FxLiveValues {
+  if (!isObj(v)) return false
+  return Object.entries(v).every(
+    ([scope, values]) =>
+      FX_SCOPES.includes(scope as FxScope) &&
+      isObj(values) &&
+      Object.keys(values).length <= 64 &&
+      Object.values(values).every((n) => typeof n === 'number' && Number.isFinite(n)),
+  )
 }
