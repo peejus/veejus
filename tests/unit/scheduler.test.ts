@@ -322,6 +322,22 @@ describe('drop (arm and fire)', () => {
     expect(h.sched.state(9100, h.clock).drop!.beatsRemaining).toBeCloseTo(before, 6)
   })
 
+  it('dropNow fires the armed drop on the next beat', () => {
+    const h = harness(120, 8)
+    h.at(3000, () => h.sched.arm('p1', spec(), h.now(), h.clock))
+    h.at(3200, () => h.sched.dropNow(h.now(), h.clock))
+    h.runTo(4000)
+    // Beat 6.4 at 3.2 s: the next beat is beat 7 = 3.5 s.
+    expect(Math.abs(starts(h.log)[0]!.atMs - 3500)).toBeLessThanOrEqual(HALF_FRAME)
+  })
+
+  it('pad velocity scales the clip opacity', () => {
+    const h = harness(120)
+    h.at(100, () => h.sched.press('p1', spec({ quantize: 'off' }), h.now(), h.clock, 0.25))
+    h.runTo(300)
+    expect(h.sched.opacity('overlayA', 300, h.clock)).toBeCloseTo(0.25)
+  })
+
   it('arming an armed pad disarms it; disarming the last cancels the drop', () => {
     const h = harness(120)
     h.at(1000, () => h.sched.arm('p1', spec(), h.now(), h.clock))

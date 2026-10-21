@@ -1,6 +1,8 @@
 import {
+  BEATS_PER_BAR,
   DEFAULT_BEAT_SETTINGS,
   MANUAL_BPM_RANGE,
+  type ExternalStatus,
   type BeatCommand,
   type BeatEvent,
   type BeatSettings,
@@ -33,6 +35,20 @@ const HIGH_FALLBACK_S = 2
 /** The period measured from on-beat hits replaces the estimate when they agree this well. */
 const PRECISE_AGREEMENT = 0.01
 
+/**
+ * Timing from an external clock (MIDI clock, Ableton Link), in performance.now() ms.
+ * `beatAtMs` is when an integer beat happens (real time, like the audio side). When the source
+ * knows its position, `beatNumber` is that beat's count in the source's own timeline, so bars
+ * line up (beat numbers divisible by 4 are downbeats).
+ */
+export interface ExternalSample {
+  periodMs: number
+  beatAtMs: number
+  /** False when only the tempo is known (e.g. MIDI clock ticks without a Start). */
+  phaseKnown: boolean
+  beatNumber: number | null
+}
+
 const clampBpm = (bpm: number) => Math.min(MANUAL_BPM_RANGE[1], Math.max(MANUAL_BPM_RANGE[0], bpm))
 
 export class BeatEngine {
@@ -57,6 +73,11 @@ export class BeatEngine {
   private trackerVersionSeen = -1
   /** Latest analysis time seen, for keeping phase around "now" on tempo changes. */
   private latestAnalysisS: number | undefined
+  /** Latest timing from the external source, and its status line. */
+  private external: ExternalSample | null = null
+  private externalStatus: ExternalStatus = { ok: false, text: 'Waiting…' }
+  /** Snap onto the external grid at the next sample with a phase (after switching to it). */
+  private snapPending = false
 
   constructor(hopSeconds: number, nowMs: number, settings: BeatSettings = DEFAULT_BEAT_SETTINGS) {
     this.settings = { ...settings }
@@ -168,7 +189,19 @@ export class BeatEngine {
 
   // ---- tempo / phase plumbing ----------------------------------------------
 
+  /** True when an external clock (MIDI / Link) drives tempo and phase. */
+  get isExternal(): boolean {
+    return this.settings.clockSource !== 'internal'
+  }
+
+  /** New timing from the external source (null when it has gone quiet). */
+  setExternal(sample: ExternalSample | null, status: ExternalStatus): void {
+    this.external = sample
+    this.externalStatus = status
+  }
+
   get bpm(): number {
+    if (this.isExternal && this.external) return 60000 / this.external.periodMs
     if (this.settings.tempoMode === 'locked') return this.settings.lockedBpm
     return this.autoBpm ?? this.clock.bpm
   }
@@ -182,6 +215,28 @@ export class BeatEngine {
 
   command(cmd: BeatCommand, nowMs: number): void {
     const s = this.settings
+    if (cmd.type === 'setClockSource') {
+      if (cmd.source === s.clockSource) return
+      s.clockSource = cmd.source
+      this.external = null
+      this.externalStatus = { ok: false, text: 'Waiting…' }
+      this.snapPending = cmd.source !== 'internal'
+      // Back to Veejus's own clock: carry on from the current position at the internal tempo.
+      if (cmd.source === 'internal') this.applyTempoAt(nowMs)
+      return
+    }
+    if (this.isExternal) {
+      // The external source owns tempo and phase. Only moving the downbeat is allowed, and
+      // only when the source doesn't know where its bars start.
+      if (cmd.type === 'resyncDownbeat' && !this.external?.phaseKnown) {
+        this.clock.setDownbeatNow(nowMs)
+        return
+      }
+      if (
+        ['tap', 'setBpm', 'lock', 'auto', 'multiply', 'nudge', 'resyncDownbeat'].includes(cmd.type)
+      )
+        return
+    }
     switch (cmd.type) {
       case 'tap': {
         const tap = this.taps.tap(nowMs)
@@ -280,6 +335,10 @@ export class BeatEngine {
   /** Advance the clock; returns beats crossed since the last call. Call every frame. */
   update(nowMs: number): BeatEvent[] {
     this.taps.expire(nowMs)
+    if (this.isExternal) {
+      this.followExternal(nowMs)
+      return this.clock.update(nowMs)
+    }
     if (this.tracker.version !== this.trackerVersionSeen) {
       this.trackerVersionSeen = this.tracker.version
       const period = this.tracker.period
@@ -293,6 +352,29 @@ export class BeatEngine {
       }
     }
     return this.clock.update(nowMs)
+  }
+
+  /** Steer the clock onto the external source's grid (or just its tempo, without a phase). */
+  private followExternal(nowMs: number): void {
+    const e = this.external
+    if (!e) return // freewheel at the last tempo
+    if (!e.phaseKnown) {
+      if (Math.abs(this.clock.getTarget().periodMs - e.periodMs) > 1e-6)
+        this.clock.setTempo(e.periodMs, nowMs)
+      return
+    }
+    this.clock.setTarget({ periodMs: e.periodMs, beatAtMs: e.beatAtMs })
+    if (this.snapPending) {
+      this.clock.snap(nowMs)
+      this.snapPending = false
+    }
+    if (e.beatNumber === null) return
+    // Line the bars up: our beat at that moment should sit where the source's beat does.
+    const ours = this.clock.position(e.beatAtMs - this.clock.latencyOffsetMs)
+    const k = Math.round(ours)
+    if (Math.abs(ours - k) > 0.2) return // still converging
+    const offset = (((e.beatNumber - k) % BEATS_PER_BAR) + BEATS_PER_BAR) % BEATS_PER_BAR
+    if (offset !== this.clock.barOffsetBeats) this.clock.setBarOffset(offset)
   }
 
   state(nowMs: number): BeatState {
@@ -310,6 +392,7 @@ export class BeatEngine {
       barInPhrase: snap.barInPhrase,
       phraseIndex: snap.phraseIndex,
       taps: this.taps.count,
+      external: this.isExternal ? { ...this.externalStatus } : null,
     }
   }
 }

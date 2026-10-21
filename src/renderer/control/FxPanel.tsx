@@ -24,6 +24,7 @@ import {
 } from '@shared/fx'
 import { SmartSlider, formatByStep, type LiveSource } from './SmartSlider'
 import type { FxLink } from './useFx'
+import { targetKey } from '@shared/midi'
 
 export const SCOPE_NAMES: Record<FxScope, string> = { ...LAYER_NAMES, master: 'Master' }
 
@@ -314,6 +315,17 @@ function ParamRow(props: {
 }) {
   const { ctx, target, spec } = props
   const aria = props.aria ?? props.label
+  // Effect parameters ("<effectId>.<param>") can be mapped to MIDI knobs.
+  const dot = target.indexOf('.')
+  const learnKey =
+    dot > 0
+      ? targetKey({
+          kind: 'effectParam',
+          scope: ctx.scope,
+          effectId: target.slice(0, dot),
+          param: target.slice(dot + 1),
+        })
+      : undefined
   const mods = ctx.chain.mods.map((m, i) => ({ m, i })).filter(({ m }) => m.target === target)
   const open = ctx.expanded.has(target) && mods.length > 0
   return (
@@ -330,6 +342,7 @@ function ParamRow(props: {
             defaultValue={spec.default}
             onChange={props.onChange}
             live={mods.length ? ctx.live(target) : undefined}
+            learn={learnKey}
           />
         ) : (
           <LiveMeter live={ctx.live(target)} spec={spec} modulated={mods.length > 0} />

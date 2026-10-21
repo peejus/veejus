@@ -23,6 +23,7 @@ import {
   type OutputWindowState,
 } from '@shared/protocol'
 import { Library } from './library'
+import { LinkManager, linkModulePath } from './link'
 import { handleMediaProtocol, registerMediaScheme } from './mediaProtocol'
 
 // Keep paused, preloaded video players decoded so a trigger starts on the next frame,
@@ -42,6 +43,9 @@ registerMediaScheme()
 if (process.env['VEEJUS_USER_DATA']) app.setPath('userData', process.env['VEEJUS_USER_DATA'])
 
 const library = new Library()
+const link = new LinkManager(linkModulePath(__dirname), (sample) =>
+  outputWin?.webContents.send(Channel.link, sample),
+)
 let controlWin: BrowserWindow | null = null
 let outputWin: BrowserWindow | null = null
 let quitting = false
@@ -286,7 +290,19 @@ function registerMediaPermissions(): void {
   const isOutput = (wc: Electron.WebContents | null) =>
     !!wc && !!outputWin && !outputWin.isDestroyed() && wc === outputWin.webContents
 
+  const isControl = (wc: Electron.WebContents | null) =>
+    !!wc && !!controlWin && !controlWin.isDestroyed() && wc === controlWin.webContents
+  // Web MIDI: controllers in the control window, MIDI clock in the output window. Chromium
+  // asks for 'midiSysex' even when SysEx isn't requested, so both names are allowed (only for
+  // our own two windows); Veejus never sends or reads SysEx.
+  const midiOk = (wc: Electron.WebContents | null, permission: string) =>
+    (permission === 'midi' || permission === 'midiSysex') && (isControl(wc) || isOutput(wc))
+
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    if (midiOk(wc, permission)) {
+      callback(true)
+      return
+    }
     if (permission === 'media' && isOutput(wc)) {
       const types = 'mediaTypes' in details ? (details.mediaTypes ?? []) : []
       callback(types.every((t) => t === 'audio'))
@@ -295,7 +311,7 @@ function registerMediaPermissions(): void {
     callback(false)
   })
   session.defaultSession.setPermissionCheckHandler(
-    (wc, permission) => permission === 'media' && isOutput(wc),
+    (wc, permission) => (permission === 'media' && isOutput(wc)) || midiOk(wc, permission),
   )
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     const requester = request.frame ? (webContents.fromFrame(request.frame) ?? null) : null
@@ -328,8 +344,20 @@ function registerIpc(): void {
 
   ipcMain.on(Channel.outputCommand, (e, cmd: unknown) => {
     if (!fromOutput(e) || !isOutputCommand(cmd) || !outputWin) return
-    if (cmd.type === 'exitFullscreen') outputWin.setFullScreen(false)
-    else outputWin.setFullScreen(!outputWin.isFullScreen())
+    switch (cmd.type) {
+      case 'exitFullscreen':
+        outputWin.setFullScreen(false)
+        break
+      case 'toggleFullscreen':
+        outputWin.setFullScreen(!outputWin.isFullScreen())
+        break
+      case 'link':
+        link.setEnabled(cmd.enabled, cmd.bpm)
+        break
+      case 'linkTempo':
+        link.setTempo(cmd.bpm)
+        break
+    }
   })
 
   ipcMain.handle(Channel.mainRequest, async (e, req: unknown): Promise<MainResponse> => {
@@ -362,6 +390,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   quitting = true
+  link.dispose()
 })
 
 app.on('window-all-closed', () => app.quit())

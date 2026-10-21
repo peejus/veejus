@@ -35,7 +35,8 @@ export interface PadsLink {
   update(pad: PadRef, patch: Partial<PadConfig>): void
   /** Put these clips on the current bank's pads, in order. */
   fillBank(clipIds: string[]): void
-  press(pad: PadRef): void
+  /** `velocity` (0..1, e.g. from a MIDI pad) scales the clip's opacity. */
+  press(pad: PadRef, velocity?: number): void
   release(pad: PadRef): void
   arm(pad: PadRef): void
   stopAll(): void
@@ -125,13 +126,25 @@ export function usePads(): PadsLink {
     bridge.sendToOutput({ type: 'setTriggerSettings', settings: next })
   }, [])
 
-  const send = useCallback((type: 'padPress' | 'padArm', pad: PadRef) => {
+  const send = useCallback((type: 'padPress' | 'padArm', pad: PadRef, velocity?: number) => {
     const { banks: b, settings: s } = latest.current
     const spec = specFor(b[pad.bank]![pad.index]!, s, type === 'padArm')
-    if (spec) bridge.sendToOutput({ type, padId: padId(pad.bank, pad.index), spec })
+    if (!spec) return
+    const id = padId(pad.bank, pad.index)
+    if (type === 'padPress')
+      bridge.sendToOutput({
+        type,
+        padId: id,
+        spec,
+        ...(velocity !== undefined ? { velocity } : {}),
+      })
+    else bridge.sendToOutput({ type, padId: id, spec })
   }, [])
 
-  const press = useCallback((pad: PadRef) => send('padPress', pad), [send])
+  const press = useCallback(
+    (pad: PadRef, velocity?: number) => send('padPress', pad, velocity),
+    [send],
+  )
   const arm = useCallback((pad: PadRef) => send('padArm', pad), [send])
   const release = useCallback(
     (pad: PadRef) => bridge.sendToOutput({ type: 'padRelease', padId: padId(pad.bank, pad.index) }),

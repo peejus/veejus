@@ -128,6 +128,49 @@
   - **Blending:** all blending happens in `LAYER_FS` against the copy, so blend modes don't depend on fixed-function GL blending.
   - **Textures:** clip textures are premultiplied (video via the upload flag, images via premultiplied ImageBitmaps).
 
+## External clocks (MIDI clock, Ableton Link)
+
+```
+ MIDI clock:  device ─▶ output window (Web MIDI, event timestamps) ─▶ MidiClockFollower
+                         ─▶ { periodMs, beatAtMs, beatNumber } ─┐
+ Link:        main process: LinkManager (native module) samples tempo + bar phase every 20 ms,
+              stamped in epoch ms ─▶ 'veejus:link' ─▶ output ─▶ epoch → performance.now()  ─┤
+                                                                                           ▼
+              ExternalClock.update(now) ─▶ BeatEngine.setExternal(sample, status) ─▶ BeatClock
+```
+
+- **`BeatSettings.clockSource`:** `internal` (audio detection or tap/manual, as before), `midi` or `link`.
+  - In an external mode the engine ignores its own tempo sources. Each frame it sets the clock target from the latest sample.
+  - It snaps once when switching (at most half a beat), then lines bars up: the source's beat numbers divisible by 4 become downbeats (`BeatClock.setBarOffset`).
+  - No sample (source quiet): the clock freewheels at the last tempo.
+- **`MidiClockFollower`** (pure, unit-tested):
+  - **Tempo:** a least-squares line through the last 96 ticks (4 beats).
+  - **Position:** Start, Continue and Song Position Pointer. Without them, only tempo is followed.
+- **Link:**
+  - Lives in the main process, because the native module can't load in a sandboxed renderer.
+  - Bar phase comes from `getPhase(4)`, which all peers agree on.
+  - Main and renderer timestamps are both `performance.timeOrigin + performance.now()` (wall-clock epoch, sub-ms), so the output converts them without a sync handshake.
+  - Tempo commands from Veejus (typed BPM, ×2, ÷2) are proposed to the session through an `OutputCommand`.
+- **Permissions:** Web MIDI is allowed for the two app windows only. Chromium asks for `midiSysex` even without SysEx; Veejus never uses SysEx.
+
+## MIDI controllers
+
+- **`src/shared/midi.ts`** (pure, unit-tested) holds:
+  - message parsing
+  - `MidiTarget`, the things a control can drive
+  - `MidiBinding` (device, note/CC, channel, number, target, CC mode, velocity)
+  - matching, absolute and relative CC math
+  - the APC mini template and the LED palette
+- **`useMidi`** (control window):
+  - Opens Web MIDI and listens to every input. It dispatches matched bindings to `MidiActions`, the same functions the UI calls.
+  - Sends LED notes for pad states (only changes) to the chosen output.
+  - Saves `MidiSettings` in the window's storage.
+- **MIDI learn:**
+  - Mappable elements carry `data-learn` (a JSON `MidiTarget`). In learn mode, capture-phase listeners turn clicks on them into "pick this target".
+  - The next note or CC binds to that target, and re-learning a control replaces its old mapping.
+  - Classes `learn-mapped` and `learn-target` mark the state.
+- **Encoder bursts:** relative CCs step from the value last sent (for 250 ms), not from React state that hasn't re-rendered yet.
+
 ## Effects and modulation
 
 ```
@@ -205,5 +248,4 @@ fixtures/       media/ and keying/ (committed); stress/, perf/ and audio/ (gener
 
 ## Seams for later phases
 
-- **Phase 7 (MIDI):** a MIDI CC can drive any `FxConfig` number through the same target strings (`opacity`, `<effectId>.<param>`). A "MIDI" `ModSource` kind would slot into `sourceValue`.
 - **Phase 8 (saving):** `FxConfig`, `LayersConfig` and the pads are plain JSON with guards, ready to save in a set file.

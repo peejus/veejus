@@ -14,6 +14,7 @@ import { SmartSlider, type LiveSource } from './SmartSlider'
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
 import { LAYER_COLORS } from './layerColors'
+import { targetKey } from '@shared/midi'
 import type { FxLink } from './useFx'
 import type { LayersLink } from './useLayers'
 
@@ -177,6 +178,7 @@ export function Mixer({ layers, fx, clips, fxOpen, onFx }: MixerProps) {
                 format={pct}
                 onChange={(v) => layers.setLayer(id, { opacity: v })}
                 live={opacityLive(id)}
+                learn={targetKey({ kind: 'layerOpacity', layer: id })}
               />
             </div>
             <div className="strip-bottom">
@@ -245,6 +247,7 @@ export function Mixer({ layers, fx, clips, fxOpen, onFx }: MixerProps) {
             format={pct}
             onChange={(v) => layers.setMaster({ brightness: v })}
             live={opacityLive('master')}
+            learn={targetKey({ kind: 'masterBrightness' })}
           />
         </div>
         <div className="strip-bottom">
@@ -252,6 +255,7 @@ export function Mixer({ layers, fx, clips, fxOpen, onFx }: MixerProps) {
             className={`blackout${master.blackout ? ' on' : ''}`}
             aria-pressed={master.blackout}
             data-testid="blackout"
+            data-learn={targetKey({ kind: 'blackout' })}
             title="Blackout (backquote key)"
             onClick={() => layers.setMaster({ blackout: !master.blackout })}
           >

@@ -17,7 +17,8 @@
     "fixtures:stress": "node scripts/make-fixtures.mjs --stress",
     "fixtures:audio": "tsx --tsconfig tsconfig.node.json scripts/make-audio-fixtures.ts",
     "analyze": "tsx --tsconfig tsconfig.node.json scripts/analyze-audio.ts",
-    "fixtures:perf": "node scripts/make-fixtures.mjs --perf"
+    "fixtures:perf": "node scripts/make-fixtures.mjs --perf",
+    "build:link": "node scripts/build-link.mjs"
   },
   "author": "",
   "license": "UNLICENSED",

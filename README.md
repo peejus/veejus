@@ -32,22 +32,23 @@ To start it from the desktop or taskbar, right-click `Start-Veejus.bat` → **Sh
 
 ## Commands
 
-| Command                     | What it does                                                                               |
-| --------------------------- | ------------------------------------------------------------------------------------------ |
-| `npm run dev`               | Start the app with hot reload (control window + output window)                             |
-| `npm run build`             | Production build into `out/`                                                               |
-| `npm run preview`           | Run the production build                                                                   |
-| `npm test`                  | Unit tests (Vitest), then build + end-to-end tests (Playwright)                            |
-| `npm run test:unit`         | Unit tests only                                                                            |
-| `npm run test:e2e`          | Build, then end-to-end tests that launch the real app                                      |
-| `npm run typecheck`         | TypeScript checks for main/preload and renderer code                                       |
-| `npm run lint`              | ESLint                                                                                     |
-| `npm run format`            | Prettier                                                                                   |
-| `npm run fixtures`          | Regenerate the small committed test media in `fixtures/media`                              |
-| `npm run fixtures:stress`   | Generate 50 clips in `fixtures/stress` for the stress test                                 |
-| `npm run fixtures:perf`     | Generate 1080p clips in `fixtures/perf` for the 4-layer performance test                   |
-| `npm run fixtures:audio`    | Write synthetic drum patterns + ground truth to `fixtures/audio`                           |
-| `npm run analyze -- <file>` | Run onset detection and beat tracking over an audio file (WAV, or MP3/FLAC/... via ffmpeg) |
+| Command                     | What it does                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| `npm run dev`               | Start the app with hot reload (control window + output window)                              |
+| `npm run build`             | Production build into `out/`                                                                |
+| `npm run preview`           | Run the production build                                                                    |
+| `npm test`                  | Unit tests (Vitest), then build + end-to-end tests (Playwright)                             |
+| `npm run test:unit`         | Unit tests only                                                                             |
+| `npm run test:e2e`          | Build, then end-to-end tests that launch the real app                                       |
+| `npm run typecheck`         | TypeScript checks for main/preload and renderer code                                        |
+| `npm run lint`              | ESLint                                                                                      |
+| `npm run format`            | Prettier                                                                                    |
+| `npm run fixtures`          | Regenerate the small committed test media in `fixtures/media`                               |
+| `npm run fixtures:stress`   | Generate 50 clips in `fixtures/stress` for the stress test                                  |
+| `npm run fixtures:perf`     | Generate 1080p clips in `fixtures/perf` for the 4-layer performance test                    |
+| `npm run fixtures:audio`    | Write synthetic drum patterns + ground truth to `fixtures/audio`                            |
+| `npm run analyze -- <file>` | Run onset detection and beat tracking over an audio file (WAV, or MP3/FLAC/... via ffmpeg)  |
+| `npm run build:link`        | Build the optional Ableton Link module into `native/` (needs Visual Studio C++ Build Tools) |
 
 The stress test is skipped until `npm run fixtures:stress` has been run once.
 
@@ -94,6 +95,20 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 - **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. **Search** by name or folder, and filter by type: Video, GIF / animated, Stills or Broken. **Remove N broken** clears unplayable clips in one go, with Undo. Each tile shows its name on the thumbnail, and **▣ N** shows how many pads use it; removing a clip that pads use asks first. Hover a clip for a live preview. A click only **selects** it, so browsing never changes the show. To show it on the Background layer right away (unquantized), use the **▶ Play** button on the selected clip, or double-click it. **Clear library…** asks first and offers **Undo** for 10 seconds. The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
 - **Library plays:** selecting a library clip shows it in the context panel with **▶ Play on Background**, **Stop**, and how library plays look: loop or one-shot, speed (0.25×–4×), and fit (contain, cover, stretch, original size). Changes apply live. **Stop** clears the layer.
 - **Tempo:** the BPM is detected from the audio and the beat lights follow the kicks. **Space** taps tempo, **Enter** marks "now is beat 1", **← / →** nudge the grid 10 ms. You can also type a BPM, use ×2 / ÷2, or lock the tempo. **⚙ Setup → Clock** has phase correction, a latency offset (raise it if the visuals land after the kick you hear), phrase length and tempo range. If no audio input is selected, the tempo panel says so and opens **⚙ Setup → Audio**. The output's debug overlay (off by default, because the audience sees it; turn it on under **⚙ Setup → Diagnostics**) shows a 4-light metronome.
+- **MIDI controllers:**
+  - **MIDI learn:** press **MIDI learn** in the top bar. Every control you can map gets outlined. Click one, then press or move a control on your controller. Repeat for as many as you like, then press **Done**.
+  - **What you can map:**
+    - pads (with velocity: hit harder for a more opaque clip)
+    - banks, quantize, tap, beat 1, nudge, stop all, blackout
+    - layer faders and master brightness
+    - any effect slider
+    - in ⚙ Setup → MIDI: hold-to-arm, fire drop now, next/previous bank
+  - **Faders and knobs:** each CC can be absolute or relative (endless encoders).
+  - **Templates:** ⚙ Setup → MIDI → **Controller template** maps an **Akai APC mini (mk1)** in one click: grid, faders, buttons, and pad LEDs (yellow ready, green playing, blinking red armed).
+  - **Saved:** mappings come back the next time you start.
+- **Tempo source** (⚙ Setup → Clock): **Audio detection**, **Tap / manual**, **MIDI clock** (from a DJ mixer, drum machine or DAW; press play on the source to line up bars) or **Ableton Link**.
+  - Link shares tempo and bars with Ableton Live, Traktor, Rekordbox, Serato and other Link apps on the network.
+  - Link needs the optional module: run `npm run build:link` once. Windows may ask to allow Veejus on the network the first time.
 - **Audio input** (⚙ Setup → Audio, or click the Audio pill): pick your mixer or audio-interface input, **System audio** (whatever this PC is playing), or the silent built-in **Test beat**. Watch the level meter, band bars and spectrum, and the **Kick** and **Snare / hat** lamps. Set **Input gain** so the level sits mostly green without lighting CLIP. **Analysis settings** has sensitivities, envelope times, crossovers and band gains. Veejus never plays audio itself.
 - **Output window** (⚙ Setup → Output, or click the Output pill): what the audience sees. Pick the display and go fullscreen there. Closing it only hides it ("Show output" brings it back). In the output window, **Esc** exits fullscreen and **F11** toggles it.
 

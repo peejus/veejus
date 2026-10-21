@@ -10,7 +10,15 @@ export const LATENCY_OFFSET_RANGE_MS = [-250, 250] as const
 /** How far one nudge moves the beat grid. */
 export const NUDGE_MS = 10
 
+/**
+ * Where tempo and phase come from. `internal` is Veejus itself: audio detection (`auto`) or
+ * tap / typed / frozen tempo (`locked`). The others follow external gear.
+ */
+export const CLOCK_SOURCES = ['internal', 'midi', 'link'] as const
+export type ClockSource = (typeof CLOCK_SOURCES)[number]
+
 export interface BeatSettings {
+  clockSource: ClockSource
   /** `auto` follows the detected tempo; `locked` holds a fixed tempo (tapped, typed or frozen). */
   tempoMode: 'auto' | 'locked'
   /** Tempo used while locked. */
@@ -26,6 +34,7 @@ export interface BeatSettings {
 }
 
 export const DEFAULT_BEAT_SETTINGS: BeatSettings = {
+  clockSource: 'internal',
   tempoMode: 'auto',
   lockedBpm: 120,
   phaseCorrection: true,
@@ -51,6 +60,7 @@ export type BeatCommand =
   | { type: 'setLatencyOffset'; ms: number }
   | { type: 'setPhraseBars'; bars: PhraseBars }
   | { type: 'setTempoRange'; minBpm: number; maxBpm: number }
+  | { type: 'setClockSource'; source: ClockSource }
 
 export interface BeatState {
   bpm: number
@@ -71,6 +81,15 @@ export interface BeatState {
   phraseIndex: number
   /** Taps registered in the current tap sequence. */
   taps: number
+  /** Status of the external clock source (MIDI clock / Link), null for the internal clock. */
+  external: ExternalStatus | null
+}
+
+export interface ExternalStatus {
+  /** True while the source is delivering tempo (and phase, where it has one). */
+  ok: boolean
+  /** Short human-readable status, e.g. "Link: 2 peers" or "MIDI clock: waiting for ticks". */
+  text: string
 }
 
 /** Emitted on every beat of the (latency-shifted) visual timeline. */
@@ -128,6 +147,8 @@ export function isBeatCommand(v: unknown): v is BeatCommand {
       return isPhraseBars(v.bars)
     case 'setTempoRange':
       return isValidTempoRange(v.minBpm, v.maxBpm)
+    case 'setClockSource':
+      return CLOCK_SOURCES.includes(v.source as ClockSource)
     default:
       return false
   }
@@ -136,6 +157,7 @@ export function isBeatCommand(v: unknown): v is BeatCommand {
 export function isBeatSettings(v: unknown): v is BeatSettings {
   return (
     isObj(v) &&
+    CLOCK_SOURCES.includes(v.clockSource as ClockSource) &&
     (v.tempoMode === 'auto' || v.tempoMode === 'locked') &&
     inRange(v.lockedBpm, ...MANUAL_BPM_RANGE) &&
     typeof v.phaseCorrection === 'boolean' &&
@@ -159,7 +181,8 @@ export function isBeatState(v: unknown): v is BeatState {
     isNum(v.barIndex) &&
     isNum(v.barInPhrase) &&
     isNum(v.phraseIndex) &&
-    isNum(v.taps)
+    isNum(v.taps) &&
+    (v.external === null || isExternalStatus(v.external))
   )
 }
 
@@ -173,4 +196,8 @@ export function isBeatEvent(v: unknown): v is BeatEvent {
     isNum(v.phraseIndex) &&
     isNum(v.atMs)
   )
+}
+
+function isExternalStatus(v: unknown): v is ExternalStatus {
+  return isObj(v) && typeof v.ok === 'boolean' && typeof v.text === 'string' && v.text.length <= 200
 }

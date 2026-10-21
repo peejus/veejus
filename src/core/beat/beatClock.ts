@@ -143,6 +143,11 @@ export class BeatClock {
     return this.barOffset
   }
 
+  /** Set which beats are downbeats (an external source knows where its bars start). */
+  setBarOffset(offset: number): void {
+    this.barOffset = ((Math.round(offset) % BEATS_PER_BAR) + BEATS_PER_BAR) % BEATS_PER_BAR
+  }
+
   /** Size of a grid unit in beats, and the offset its boundaries are aligned to. */
   private grid(unit: GridUnit): { size: number; offset: number } {
     switch (unit) {

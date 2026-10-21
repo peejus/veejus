@@ -1,6 +1,7 @@
 import { FrameStats } from '@core/frameStats'
 import {
   isControlToOutput,
+  isLinkSample,
   type ClipInfo,
   type FxLiveValues,
   type LayerSettings,
@@ -30,6 +31,7 @@ import { Metronome } from './metronome'
 import { ClipLayer } from './clipLayer'
 import { MediaManager } from './media/mediaManager'
 import { Stage } from './stage'
+import { ExternalClock } from './externalClock'
 
 const bridge = (window as unknown as { veejus: OutputBridge }).veejus
 
@@ -174,6 +176,10 @@ function sendLayerState(force = false): void {
 // ---- beat + audio -----------------------------------------------------------
 
 const beat = new BeatEngine(HOP_SIZE / 48000, performance.now())
+const externalClock = new ExternalClock(beat, (cmd) => bridge.command(cmd))
+bridge.onLink((sample) => {
+  if (isLinkSample(sample)) externalClock.onLink(sample)
+})
 const metronome = new Metronome(document.getElementById('metronome') as HTMLDivElement)
 
 const audio = new AudioEngine({
@@ -351,7 +357,7 @@ bridge.onControlMessage((msg) => {
       sendTriggerState()
       break
     case 'padPress':
-      scheduler.press(msg.padId, msg.spec, performance.now(), beat.clock)
+      scheduler.press(msg.padId, msg.spec, performance.now(), beat.clock, msg.velocity ?? 1)
       sendTriggerState()
       break
     case 'padRelease':
@@ -360,6 +366,10 @@ bridge.onControlMessage((msg) => {
       break
     case 'padArm':
       scheduler.arm(msg.padId, msg.spec, performance.now(), beat.clock)
+      sendTriggerState()
+      break
+    case 'dropNow':
+      scheduler.dropNow(performance.now(), beat.clock)
       sendTriggerState()
       break
     case 'stopAll':
@@ -399,10 +409,19 @@ bridge.onControlMessage((msg) => {
       sendLayerState(true)
       break
     }
-    case 'beatCommand':
-      beat.command(msg.command, performance.now())
+    case 'beatCommand': {
+      const cmd = msg.command
+      const now = performance.now()
+      // Following Link, tempo changes are proposed to the whole session instead.
+      if (beat.currentSettings.clockSource === 'link') {
+        if (cmd.type === 'setBpm') externalClock.proposeTempo(cmd.bpm)
+        else if (cmd.type === 'multiply') externalClock.proposeTempo(beat.bpm * cmd.factor)
+      }
+      beat.command(cmd, now)
+      externalClock.setSource(beat.currentSettings.clockSource, now)
       sendBeatState()
       break
+    }
     case 'setAudioSource':
       void audio.setSource(msg.source)
       break
@@ -496,6 +515,7 @@ function frame(now: number): void {
   lastFrameAt = now
 
   // Advance musical time first, so anything due on this frame is drawn on this frame.
+  externalClock.update(now)
   for (const event of beat.update(now)) {
     metronome.beat(event.beatInBar)
     bridge.sendToControl({ type: 'beat', event })
@@ -662,6 +682,19 @@ function frame(now: number): void {
   /** RGBA of the pixel at fractional canvas position (fx, fy), read after the next frame. */
   samplePixel: (fx: number, fy: number) =>
     new Promise<number[] | null>((resolve) => pixelRequests.push({ fx, fy, resolve })),
+  /** Feed a MIDI message to the MIDI clock input, as if it came from a device. */
+  injectMidi: (bytes: number[], atMs?: number) =>
+    externalClock.midi.onMessage(bytes, atMs ?? performance.now()),
+  /** The visual beat position now, with the matching epoch time (for Link alignment tests). */
+  clockNow: () => {
+    const now = performance.now()
+    return {
+      pos: beat.clock.position(now),
+      epochMs: performance.timeOrigin + now,
+      latencyOffsetMs: beat.clock.latencyOffsetMs,
+      barOffset: beat.clock.barOffsetBeats,
+    }
+  },
 }
 
 requestAnimationFrame(frame)

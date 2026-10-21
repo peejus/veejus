@@ -29,6 +29,8 @@ interface Props {
   live?: LiveSource
   /** Turn off the shortcut (and its title hint) for type-in, where it makes no sense. */
   typeable?: boolean
+  /** MIDI learn target (see useMidi); makes the slider mappable. */
+  learn?: string
 }
 
 /**
@@ -68,7 +70,7 @@ export function SmartSlider(p: Props) {
 
   const fineStep = p.step / FINE
   return (
-    <div className="smart-slider">
+    <div className="smart-slider" data-learn={p.learn}>
       <div className="smart-track">
         <input
           type="range"

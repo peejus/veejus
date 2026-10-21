@@ -1,16 +1,20 @@
 import type { DisplayInfo, FrameStatsSnapshot, MediaStats } from '@shared/protocol'
 import { AudioPanel } from './AudioPanel'
-import { ClockSettings } from './BeatPanel'
+import { ClockSettings, ClockSourcePicker } from './BeatPanel'
+import { MidiSetup } from './MidiSetup'
+import type { MidiLink } from './useMidi'
+import type { FxConfig } from '@shared/fx'
 import type { AudioLink } from './useAudio'
 import type { BeatLink } from './useBeat'
 import type { OutputLink } from './useOutputLink'
 
-export const SETUP_TABS = ['audio', 'output', 'clock', 'diagnostics'] as const
+export const SETUP_TABS = ['audio', 'output', 'clock', 'midi', 'diagnostics'] as const
 export type SetupTab = (typeof SETUP_TABS)[number]
 const TAB_LABELS: Record<SetupTab, string> = {
   audio: 'Audio',
   output: 'Output',
   clock: 'Clock',
+  midi: 'MIDI',
   diagnostics: 'Diagnostics',
 }
 
@@ -41,6 +45,8 @@ interface Props {
   onFullscreen(fullscreen: boolean): void
   onShowOutput(): void
   onMoveOutput(displayId: number): void
+  midi: MidiLink
+  fx: FxConfig
 }
 
 /**
@@ -84,9 +90,16 @@ export function SetupDrawer(p: Props) {
         </div>
         <div role="tabpanel" hidden={p.tab !== 'clock'}>
           <section className="panel">
+            <h2>Tempo source</h2>
+            <ClockSourcePicker beat={p.beat} />
+          </section>
+          <section className="panel">
             <h2>Clock</h2>
             <ClockSettings beat={p.beat} />
           </section>
+        </div>
+        <div role="tabpanel" hidden={p.tab !== 'midi'}>
+          <MidiSetup midi={p.midi} fx={p.fx} />
         </div>
         <div role="tabpanel" hidden={p.tab !== 'diagnostics'}>
           <Diagnostics

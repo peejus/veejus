@@ -63,6 +63,8 @@ export const Channel = {
   library: 'veejus:library',
   /** Output -> main (invoke). Returns the current ClipInfo[]. */
   getLibrary: 'veejus:get-library',
+  /** Main -> output. Payload: LinkSample. */
+  link: 'veejus:link',
 } as const
 
 /** Linear RGB in 0..1. */
@@ -110,7 +112,10 @@ export type ControlToOutput =
   | { type: 'requestAudioDevices' }
   | { type: 'beatCommand'; command: BeatCommand }
   /** A pad was pressed (key down / click). Fires per its quantize and mode. */
-  | { type: 'padPress'; padId: string; spec: PadSpec }
+  /** `velocity` (0..1, e.g. from a MIDI pad) scales the clip's opacity; default 1. */
+  | { type: 'padPress'; padId: string; spec: PadSpec; velocity?: number }
+  /** Fire the armed drop on the next beat. */
+  | { type: 'dropNow' }
   /** A pad was released (matters for 'hold' mode). */
   | { type: 'padRelease'; padId: string }
   /** Arm a pad for the drop, or disarm it if already armed. */
@@ -197,7 +202,26 @@ export interface LayerShowing {
 export const PREVIEW_MAX_SIDE = 640
 
 /** Window commands the output page can ask main for (e.g. from its own key handling). */
-export type OutputCommand = { type: 'exitFullscreen' } | { type: 'toggleFullscreen' }
+export type OutputCommand =
+  | { type: 'exitFullscreen' }
+  | { type: 'toggleFullscreen' }
+  /** Join or leave the Ableton Link session (the output's clock source switched). */
+  | { type: 'link'; enabled: boolean; bpm: number }
+  /** Propose a tempo to the Link session. */
+  | { type: 'linkTempo'; bpm: number }
+
+/** Ableton Link timing, main -> output, about 50 times a second while Link is on. */
+export type LinkSample =
+  | {
+      available: true
+      tempo: number
+      /** Position within the 4-beat bar (0..4), shared by every peer. */
+      phase: number
+      /** When the phase was read, in epoch ms (performance.timeOrigin + performance.now()). */
+      epochMs: number
+      peers: number
+    }
+  | { available: false; error: string }
 
 export interface DisplayInfo {
   id: number
@@ -302,11 +326,18 @@ export function isControlToOutput(v: unknown): v is ControlToOutput {
     case 'beatCommand':
       return isBeatCommand(v.command)
     case 'padPress':
+      return (
+        isPadId(v.padId) &&
+        isPadSpec(v.spec) &&
+        (v.velocity === undefined ||
+          (isFiniteNum(v.velocity) && v.velocity >= 0 && v.velocity <= 1))
+      )
     case 'padArm':
       return isPadId(v.padId) && isPadSpec(v.spec)
     case 'padRelease':
       return isPadId(v.padId)
     case 'stopAll':
+    case 'dropNow':
       return true
     case 'setTriggerSettings':
       return isTriggerSettings(v.settings)
@@ -403,7 +434,30 @@ export function isOutputToControl(v: unknown): v is OutputToControl {
 }
 
 export function isOutputCommand(v: unknown): v is OutputCommand {
-  return isObj(v) && (v.type === 'exitFullscreen' || v.type === 'toggleFullscreen')
+  if (!isObj(v)) return false
+  switch (v.type) {
+    case 'exitFullscreen':
+    case 'toggleFullscreen':
+      return true
+    case 'link':
+      return typeof v.enabled === 'boolean' && isFiniteNum(v.bpm) && v.bpm >= 20 && v.bpm <= 999
+    case 'linkTempo':
+      return isFiniteNum(v.bpm) && v.bpm >= 20 && v.bpm <= 999
+    default:
+      return false
+  }
+}
+
+export function isLinkSample(v: unknown): v is LinkSample {
+  if (!isObj(v)) return false
+  if (v.available === false) return typeof v.error === 'string'
+  return (
+    v.available === true &&
+    isFiniteNum(v.tempo) &&
+    isFiniteNum(v.phase) &&
+    isFiniteNum(v.epochMs) &&
+    isFiniteNum(v.peers)
+  )
 }
 
 export function isMainRequest(v: unknown): v is MainRequest {
@@ -446,6 +500,7 @@ export interface OutputBridge {
   onControlMessage(handler: (msg: ControlToOutput) => void): () => void
   onLibrary(handler: (clips: ClipInfo[]) => void): () => void
   getLibrary(): Promise<ClipInfo[]>
+  onLink(handler: (sample: LinkSample) => void): () => void
 }
 
 function isFxLiveValues(v: unknown): v is FxLiveValues {

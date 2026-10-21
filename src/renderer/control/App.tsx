@@ -20,6 +20,10 @@ import { FirstRun } from './FirstRun'
 import { useAudio } from './useAudio'
 import { useBeat, useBeatShortcuts } from './useBeat'
 import { useLibrary } from './useLibrary'
+import { useMidi, type MidiActions, type PadLeds } from './useMidi'
+import { LearnBanner } from './MidiSetup'
+import { EFFECT_DEFS } from '@shared/fx'
+import { padId } from '@shared/pads'
 import { useOutputLink } from './useOutputLink'
 
 /** What the context panel (right column, under the beat strip) is showing. */
@@ -139,6 +143,43 @@ export function App() {
   const setFullscreen = (fullscreen: boolean) =>
     run(request({ type: 'setOutputFullscreen', fullscreen }, 'outputState'))
 
+  // ---- MIDI -------------------------------------------------------------------
+  const midiActions: MidiActions = {
+    press: (index, velocity) => pads.press({ bank: pads.bank, index }, velocity),
+    release: (index) => pads.release({ bank: pads.bank, index }),
+    arm: (index) => pads.arm({ bank: pads.bank, index }),
+    bank: pads.bank,
+    setBank: pads.setBank,
+    quantize: pads.settings.quantize,
+    setQuantize: (q) => pads.setSettings({ ...pads.settings, quantize: q }),
+    beat: beat.command,
+    stopAll: pads.stopAll,
+    blackout: layers.master.blackout,
+    setBlackout: (on) => layers.setMaster({ blackout: on }),
+    dropNow: () => send({ type: 'dropNow' }),
+    layerOpacity: (layer) => layers.config.layers[layer].opacity,
+    setLayerOpacity: (layer, v) => layers.setLayer(layer, { opacity: v }),
+    master: layers.master.brightness,
+    setMaster: (v) => layers.setMaster({ brightness: v }),
+    effectParam: (scope, effectId, param) => {
+      const e = fx.config[scope].effects.find((x) => x.id === effectId)
+      const spec = e && EFFECT_DEFS[e.type].params.find((p) => p.name === param)
+      return e && spec ? { value: e.params[param]!, min: spec.min, max: spec.max } : null
+    },
+    setEffectParam: (scope, effectId, param, v) => fx.setEffectParam(scope, effectId, param, v),
+  }
+  const padLeds = useMemo<PadLeds>(
+    () => ({
+      bank: pads.bank,
+      pads: pads.banks[pads.bank]!.map((config, index) => ({
+        empty: !config.source,
+        state: pads.runtime?.pads[padId(pads.bank, index)]?.state ?? 'idle',
+      })),
+    }),
+    [pads.bank, pads.banks, pads.runtime],
+  )
+  const midi = useMidi(midiActions, padLeds)
+
   const { stats } = link
   const outputDisplay = displays.find((d) => d.id === link.state.displayId)
   const outputPill = !link.connected
@@ -212,6 +253,14 @@ export function App() {
           {stats ? `${stats.fps.toFixed(0)} fps` : '-- fps'}
         </span>
         <button
+          className={`learn-button${midi.learn.active ? ' on' : ''}`}
+          aria-pressed={midi.learn.active}
+          title="Map controls to your MIDI controller"
+          onClick={() => midi.setLearn(!midi.learn.active)}
+        >
+          MIDI learn
+        </button>
+        <button
           className="subtle"
           aria-label="Keyboard shortcuts"
           title="Keyboard shortcuts (?)"
@@ -229,6 +278,7 @@ export function App() {
           ⚙ Setup
         </button>
       </header>
+      <LearnBanner midi={midi} />
 
       <div className="workspace">
         <main className="main-area">
@@ -334,6 +384,8 @@ export function App() {
           onToggleOverlay={toggleOverlay}
           onFullscreen={setFullscreen}
           onShowOutput={() => run(request({ type: 'showOutput' }, 'outputState'))}
+          midi={midi}
+          fx={fx.config}
           onMoveOutput={(displayId) =>
             run(request({ type: 'moveOutputToDisplay', displayId }, 'outputState'))
           }

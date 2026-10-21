@@ -57,6 +57,8 @@ interface Pending {
   spec: PadSpec
   clipId: string | null
   firePos: number
+  /** 0..1 from pad velocity: scales the clip's opacity. */
+  gain: number
 }
 
 /** What a layer is showing for a pad. */
@@ -70,6 +72,8 @@ export interface Voice {
   /** Fade-out runs from here to endPos. */
   fadeFromPos: number | null
   nextRetriggerPos: number | null
+  /** 0..1 from pad velocity: scales the clip's opacity. */
+  gain: number
 }
 
 const unitFor = (q: Exclude<Quantize, 'off'>): GridUnit => q
@@ -126,7 +130,7 @@ export class TriggerScheduler {
     return clipId
   }
 
-  press(padId: string, spec: PadSpec, nowMs: number, clock: ClockView): void {
+  press(padId: string, spec: PadSpec, nowMs: number, clock: ClockView, gain = 1): void {
     const pos = clock.position(nowMs)
     const firePos = this.firePosition(pos, spec.quantize, clock)
     const queued = this.pending.get(padId)
@@ -146,13 +150,13 @@ export class TriggerScheduler {
       return
     }
     if (active && latches && active.endPos === null) {
-      this.pending.set(padId, { kind: 'stop', spec, clipId: active.clipId, firePos })
+      this.pending.set(padId, { kind: 'stop', spec, clipId: active.clipId, firePos, gain })
       this.changed()
       return
     }
     const clipId = this.choose(padId, spec.source)
     if (!clipId) return
-    this.pending.set(padId, { kind: 'start', spec, clipId, firePos })
+    this.pending.set(padId, { kind: 'start', spec, clipId, firePos, gain })
     this.changed()
   }
 
@@ -178,6 +182,13 @@ export class TriggerScheduler {
     if (!clipId) return
     this.armed.set(padId, { spec, clipId })
     if (this.dropPos === null) this.dropPos = this.dropTarget(nowMs, clock)
+    this.changed()
+  }
+
+  /** Fire the armed drop on the next beat instead of waiting for its target. */
+  dropNow(nowMs: number, clock: ClockView): void {
+    if (this.dropPos === null) return
+    this.dropPos = Math.min(this.dropPos, clock.boundaryAfter(clock.position(nowMs) + 1e-6, 'beat'))
     this.changed()
   }
 
@@ -251,7 +262,7 @@ export class TriggerScheduler {
     const due = (target: number) => pos >= target - (clock.beatsPerMs * frameMs) / 2
     const actions: TriggerAction[] = []
 
-    const start = (padId: string, spec: PadSpec, clipId: string, startPos: number) => {
+    const start = (padId: string, spec: PadSpec, clipId: string, startPos: number, gain = 1) => {
       // A pad moving layers leaves its old one.
       const previous = this.voiceOf(padId)
       if (previous && previous[0] !== spec.layer) {
@@ -269,6 +280,7 @@ export class TriggerScheduler {
           spec.mode === 'retrigger'
             ? clock.boundaryAfter(startPos + 1e-6, spec.retriggerEvery)
             : null,
+        gain,
       }
       if (v.endPos !== null && spec.fadeOutBeats > 0) {
         v.fadeFromPos = Math.max(startPos, v.endPos - spec.fadeOutBeats)
@@ -295,7 +307,8 @@ export class TriggerScheduler {
     for (const [padId, p] of [...this.pending]) {
       if (!due(p.firePos)) continue
       this.pending.delete(padId)
-      if (p.kind === 'start' && p.clipId) start(padId, p.spec, p.clipId, Math.max(p.firePos, pos))
+      if (p.kind === 'start' && p.clipId)
+        start(padId, p.spec, p.clipId, Math.max(p.firePos, pos), p.gain)
       else if (p.kind === 'stop') {
         const found = this.voiceOf(padId)
         if (found) this.beginStop(found[1], pos)
@@ -323,7 +336,7 @@ export class TriggerScheduler {
     const v = this.voices.get(layer)
     if (!v) return 1
     const pos = clock.position(nowMs)
-    let a = 1
+    let a = v.gain
     if (v.spec.fadeInBeats > 0)
       a *= Math.min(1, Math.max(0, (pos - v.startPos) / v.spec.fadeInBeats))
     if (v.fadeFromPos !== null && v.endPos !== null && v.endPos > v.fadeFromPos) {

@@ -16,6 +16,7 @@ import {
 } from '@shared/pads'
 import { LAYER_NAMES, type LayerId } from '@shared/layers'
 import { LAYER_COLORS } from './layerColors'
+import { targetKey } from '@shared/midi'
 import type { ClipInfo } from '@shared/protocol'
 import type { ProbeResult } from './probe'
 import type { BeatLink } from './useBeat'
@@ -73,6 +74,7 @@ const PadCell = memo(function PadCell(props: CellProps) {
       }`}
       data-testid="grid-pad"
       data-pad={id}
+      data-learn={targetKey({ kind: 'pad', index: pad.index })}
       data-state={state}
       role="button"
       aria-label={`Pad ${id}${label ? `: ${label}` : ''}`}
@@ -231,6 +233,7 @@ export function PadGrid({ pads, beat, clips, probes, onShowKeys }: Props) {
               aria-selected={pads.bank === i}
               className={pads.bank === i ? 'on' : ''}
               data-testid={`bank-${name}`}
+              data-learn={targetKey({ kind: 'bank', bank: i })}
               title={`Bank ${name} (F${i + 1})`}
               onClick={() => pads.setBank(i)}
             >
@@ -242,6 +245,7 @@ export function PadGrid({ pads, beat, clips, probes, onShowKeys }: Props) {
           Quantize
           <select
             aria-label="Global quantize"
+            data-learn={targetKey({ kind: 'quantizeCycle' })}
             value={s.quantize}
             onChange={(e) => pads.setSettings({ ...s, quantize: e.target.value as Quantize })}
           >
@@ -263,7 +267,12 @@ export function PadGrid({ pads, beat, clips, probes, onShowKeys }: Props) {
         >
           Auto-fill
         </button>
-        <button className="stop-all" onClick={pads.stopAll} title="Stop everything (Esc)">
+        <button
+          className="stop-all"
+          onClick={pads.stopAll}
+          title="Stop everything (Esc)"
+          data-learn={targetKey({ kind: 'stopAll' })}
+        >
           Stop all
         </button>
       </div>

@@ -1272,7 +1272,7 @@ All effect, modulator and mixer sliders now support:
 
 ---
 
-## UX-5: Library and visual polish (completed 2026-10-20, awaiting approval)
+## UX-5: Library and visual polish (completed and approved 2026-10-20)
 
 The last step of `docs/UX_REVIEW.md`. With it, all five steps of the review are done.
 
@@ -1367,6 +1367,180 @@ This frees cyan to mean only **Overlay B**.
 - **Mixer strip names truncate below about 1100 px** ("Backgr…"); hover shows the full name.
 - **The GIF / animated filter guesses from the file type** until a clip has been read: GIF and APNG count as animated, WebP as a still until its frame count is known.
 
+**Approval notes (2026-10-20):** UX-5 approved as built.
+
 ---
 
-The UX plan is complete. Next on the roadmap is **Phase 7: MIDI and external sync**.
+## Phase 7: External control and sync (completed 2026-10-21, awaiting approval)
+
+### What was built
+
+**MIDI controllers** (control window, Web MIDI)
+
+- **MIDI learn:** press **MIDI learn** in the top bar. A banner explains the steps, and every mappable control gets an outline: amber dashed when unmapped, green when mapped.
+  - Click a control: it pulses magenta, and the banner names it, for example "Pad A3: countdown.mp4".
+  - Press or move a control on your controller: it's mapped. The banner confirms it ("Mapped: Pad A1: alpha-ball.webm ← Note 36, ch 1 (nanoPAD2)").
+  - Map as many as you like, then press **Done**.
+  - In learn mode, clicks only pick controls: nothing fires.
+- **Mappable:**
+  - every pad (by grid position on the current bank)
+  - bank tabs, global quantize (cycles)
+  - Tap, Beat 1, −10 / +10 ms nudge
+  - Stop all, Blackout
+  - the four layer faders and master brightness
+  - **every effect slider**
+  - In **⚙ Setup → MIDI** (no on-screen button): **Arm (hold, like Shift)**, **Fire drop now**, **Next / Previous bank** and **Quantize (cycle)**.
+- **Messages:**
+  - Note on/off and CC on any channel.
+  - **Pad velocity** sets the clip's opacity; there's a per-mapping checkbox, on for pads.
+  - CC faders are absolute. For endless encoders, two **relative** modes: two's complement (1 / 127) and 64-centered.
+  - A note on a fader target sets it to the velocity.
+- **Re-learning** a control replaces its old mapping. Several controls can drive the same target.
+- **⚙ Setup → MIDI** (a new tab):
+  - devices found, and a live **last message** monitor
+  - the learnable extra actions
+  - the **controller template**
+  - the **LED feedback** output
+  - a **mappings list**, with CC mode, velocity and remove per mapping, and **Remove all**
+- **Mappings persist:** they're saved in the app profile and come back at the next start.
+- **Template: Akai APC mini (mk1).** One click maps:
+  - the grid's top four rows → the 32 pads (same layout as the screen)
+  - faders 1–4 → layer opacities; master fader → brightness
+  - scene buttons → banks A–D, tap, beat 1, stop all, blackout
+  - track buttons 1–4 → quantize off / beat / bar / phrase; track button 8 → fire drop now
+  - Shift → arm
+- **LED feedback:** pad LEDs on the chosen MIDI output show the pad states, and the current bank's button is lit. Only changes are sent.
+
+  | LED             | Pad state |
+  | --------------- | --------- |
+  | off             | empty     |
+  | yellow          | ready     |
+  | blinking green  | queued    |
+  | green           | playing   |
+  | blinking red    | armed     |
+  | blinking yellow | stopping  |
+
+  These are the APC mini's velocities; many grid controllers use the same low velocities, so they're also the generic palette.
+
+**Tempo sources** (⚙ Setup → Clock → **Tempo source**)
+
+- **Audio detection**, **Tap / manual**, **MIDI clock** or **Ableton Link**, switchable at any time while running.
+- The tempo panel's badge shows **AUTO / LOCKED / MIDI / LINK**, with the source's live status in place of "detected …".
+- Controls that don't apply are disabled:
+  - **MIDI clock:** all tempo edits.
+  - **Link:** Tap, Lock, Beat 1 and nudge.
+  - Typed BPM and ×2 / ÷2 still work under Link: they're **proposed to the whole session**, as Link apps do.
+- **MIDI clock in:**
+  - Follows any MIDI input sending clock.
+  - Tempo comes from a line fit over the last 4 beats of ticks, so USB jitter averages out.
+  - **Start** (or Continue, or Song Position) gives the position, so bars line up. Without it, only the tempo is followed and the status says "press play on the source to line up bars".
+  - If ticks stop, the clock freewheels at the last tempo.
+- **Ableton Link:**
+  - Uses the official Link SDK through a Node-API binding, running in the main process.
+  - Joins the session, follows its tempo and **bar phase** (beat 1 lines up), and proposes tempo changes back.
+  - The status shows the tempo and how many other Link apps are connected.
+
+**Switching sources at runtime**
+
+- Switching to MIDI or Link snaps once onto the source's grid (at most half a beat), then converges as before.
+- Switching back to internal carries on from where the clock is, at the internal tempo.
+- Queued quantized pads fire on the _new_ grid's boundaries. The unit test checks that a bar-quantized pad queued just before a switch fires on a Link downbeat.
+
+**Other additions**
+
+- **Fire drop now:** an armed drop can fire on the next beat (the `dropNow` message, for the MIDI action).
+- **Velocity on pads:** `padPress` carries an optional velocity, which the scheduler applies as a gain on the layer's opacity.
+
+**Building Ableton Link** (optional): `npm run build:link`
+
+- It fetches the `@ktamas77/abletonlink` binding (MIT), which includes the Ableton Link SDK.
+- It patches the binding's build file for Windows (it hard-codes the macOS platform and C++14), then builds with Visual Studio Build Tools into `native/abletonlink.node`.
+- `native/` is gitignored: no Link SDK source is committed.
+- Without the module, everything else works, and choosing Ableton Link says "Ableton Link isn't installed (run npm run build:link)".
+
+### Acceptance
+
+| Criterion                                                            | Result                                                                                                                                                                                                            |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MIDI learn maps a pad in under 5 s                                   | **~0.2 s**: click MIDI learn, click the pad, press the note (automated test)                                                                                                                                      |
+| MIDI learn maps a knob in under 5 s                                  | **~0.3 s** for the fader (the test also learns an effect slider)                                                                                                                                                  |
+| Mappings persist                                                     | The test restarts the app on the same profile: every mapping is back                                                                                                                                              |
+| Link session: beat 1 aligned within one frame                        | A real Link peer (the same Link SDK, in the test process) at 133 BPM: worst offset **0.43–0.61 ms** across runs, against a one-frame limit of 16.7 ms. Tempo followed, and a tempo set in Veejus reached the peer |
+| Switching clock sources at runtime doesn't crash; triggers re-anchor | Tested in unit tests (internal → Link with a queued bar pad, freewheel, back to internal) and end to end (internal → MIDI → internal)                                                                             |
+
+### Test results
+
+- `npm run typecheck`, `npm run lint` and Prettier: clean.
+- `npm run test:unit`: **203 passing** (20 new).
+  - **MIDI clock follower:**
+    - tempo through ±1 ms jitter
+    - beat time within 1 ms after Start
+    - tempo only (no phase) without Start
+    - Song Position Pointer
+    - timeout
+  - **Engine with external sources:**
+    - follows MIDI clock: tempo, every beat within a frame, downbeats on the source's bars
+    - snaps onto a Link grid and lines up beat 1
+    - ignores tempo commands while external, and returns to the internal tempo after
+    - freewheels
+    - re-anchors a queued bar trigger
+  - **MIDI mapping:**
+    - parsing (note-off by velocity 0, channels, non-note messages ignored)
+    - press detection
+    - matching by device, channel and number
+    - absolute and both relative CC modes
+    - guards and labels
+    - APC mini template: 32 unique pad notes, faders, banks, no collisions
+    - LED colors per state
+  - **Scheduler:** `dropNow`, and pad velocity as opacity.
+- `npm run test:e2e`: **106 passing** (8 new):
+  - `midi.spec.ts`:
+    - learning a pad (it doesn't fire while learning; afterwards velocity 64 gives opacity 0.50)
+    - learning a fader and an effect slider; a relative encoder stepping the effect in a burst of 5
+    - the APC mini template: LEDs yellow → green on play, Shift-arm shows blinking red, fire drop now, fader 1, bank buttons, stop all
+    - the tempo-source picker
+    - persistence across a restart
+  - `sync.spec.ts`:
+    - MIDI clock at 126 BPM injected in real time: tempo within ±0.2 BPM, bars within a frame
+    - runtime source switching
+    - **Ableton Link with a real peer**
+- **Performance:** 1080p with effects is still **60.0 fps** with 0 dropped frames.
+
+### Manual test script
+
+1. **MIDI learn** (your **Korg nanoPAD2** shows up as an input on this machine):
+   - Press **MIDI learn**, click pad A1, then hit a nanoPAD2 pad. Map a few more pads, then press **Done**.
+   - **Expected:** the nanoPAD2 pads fire the clips. Hit softly and hard: the clip is more transparent when hit softly.
+2. ⚙ Setup → **MIDI**:
+   - Watch **Last message** while you play the nanoPAD2.
+   - Check **Mappings**, then restart Veejus and check that they're still there.
+3. A controller with faders or knobs (or the nanoPAD2's X-Y pad, which sends CCs): learn the **Overlay A** fader and an effect slider.
+   - For an endless encoder, set its CC mode to **Relative** in the mappings list.
+4. **MIDI clock:**
+   - ⚙ Setup → Clock → **MIDI clock**. Send clock from a DJ mixer, a drum machine or a DAW, and press play there.
+   - **Expected:** the badge shows **MIDI**, the status shows the BPM, and beat 1 follows the source's bar.
+5. **Ableton Link:**
+   - Run `npm run build:link` once.
+   - Start a Link app (Ableton Live, Traktor/Rekordbox with Link on, or a phone app like "Link to MIDI").
+   - ⚙ Setup → Clock → **Ableton Link**. Allow network access if Windows asks.
+   - **Expected:** "Link: N BPM, 1 other app", the tempo follows, and the beat lights flash with the other app's bar. Type a BPM in Veejus: the other app follows.
+6. Switch between sources while a loop plays. **Expected:** no jumps beyond a snap to the new grid, and queued pads still land on beats.
+
+### Decisions and defaults
+
+- **MIDI pads follow the current bank**, like the keyboard: pad mappings are grid positions, not fixed pads. This matches how grid controllers and banks usually work.
+- **Mappings live in the app profile** (window storage), not in a set file. Sets arrive in Phase 8, when mappings can be saved with them.
+- **MIDI clock listens to every input.** Picking one clock input could come later; most setups have one clock source.
+- **Link runs in the main process** (the native module can't load in the sandboxed windows). It's sampled every 20 ms with sub-millisecond timestamps.
+- **Tempo commands under Link are proposals to the session:** typed BPM, ×2 and ÷2. Tap is disabled, since tap tempo and a shared session clock fight each other.
+- **OSC input was optional and is not included.** The MIDI action layer (`MidiActions`) is where an OSC receiver would plug in.
+
+### Known issues / limitations
+
+- **Ableton Link licensing:** the Link SDK is **GPL-2.0-or-later**, or proprietary under a license from Ableton.
+  - Building it locally for your own use is fine.
+  - **Distributing** Veejus with Link would require GPL compliance or an Ableton license; the build script keeps it optional and out of the repository. This is your decision before any public release.
+- **Windows firewall:** the first time Link starts, Windows may ask whether Veejus (Electron) can use the network. Link needs local network access to find peers.
+- **Only one hardware check so far:** your nanoPAD2 was detected. The pad, fader, encoder and LED logic were tested with injected MIDI messages. The APC mini LED colors follow Akai's published protocol, but haven't been checked on a real unit. Link was tested against a real Link peer on this machine, not yet against Ableton Live or a DJ app.
+- **APC mini mk2** (RGB) uses a different LED protocol and isn't covered by the mk1 template.
+- **MIDI clock jitter:** with very jittery clock sources (some USB interfaces), the fitted tempo may wander by about 0.1 BPM. Bars stay aligned because the phase is re-read every beat.

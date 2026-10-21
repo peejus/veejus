@@ -9,6 +9,7 @@ import {
   type PhraseBars,
 } from '@shared/beat'
 import type { AudioEngineState } from '@shared/audio'
+import { targetKey } from '@shared/midi'
 import type { BeatLink } from './useBeat'
 
 const FLASH_MS = 120
@@ -64,7 +65,7 @@ function BeatLights({ beat }: { beat: BeatLink }) {
   )
 }
 
-function BpmEntry({ beat }: { beat: BeatLink }) {
+function BpmEntry({ beat, disabled }: { beat: BeatLink; disabled?: boolean }) {
   const [text, setText] = useState('')
   const submit = () => {
     const bpm = Number(text)
@@ -80,6 +81,7 @@ function BpmEntry({ beat }: { beat: BeatLink }) {
       inputMode="decimal"
       placeholder="Type BPM"
       aria-label="Type BPM"
+      disabled={disabled}
       min={MANUAL_BPM_RANGE[0]}
       max={MANUAL_BPM_RANGE[1]}
       step={0.1}
@@ -105,6 +107,9 @@ export function BeatPanel({ beat, audioState, onAudioSetup }: BeatPanelProps) {
   const s = beat.state
   const settings = s?.settings
   const locked = settings?.tempoMode === 'locked'
+  const source = settings?.clockSource ?? 'internal'
+  /** Status of MIDI clock / Link when one of them drives the clock. */
+  const ext = s?.external ?? null
 
   return (
     <section className="panel beat-panel">
@@ -116,10 +121,20 @@ export function BeatPanel({ beat, audioState, onAudioSetup }: BeatPanelProps) {
           <span className="bpm-unit">BPM</span>
         </div>
         <div className="tempo-meta">
-          <span className={`mode-badge ${locked ? 'locked' : 'auto'}`} data-testid="tempo-mode">
-            {locked ? 'LOCKED' : 'AUTO'}
+          <span
+            className={`mode-badge ${ext ? 'external' : locked ? 'locked' : 'auto'}`}
+            data-testid="tempo-mode"
+          >
+            {source === 'midi' ? 'MIDI' : source === 'link' ? 'LINK' : locked ? 'LOCKED' : 'AUTO'}
           </span>
-          {audioState === 'running' ? (
+          {ext ? (
+            <span
+              className={`detected external-status ${ext.ok ? '' : 'bad'}`}
+              data-testid="external-status"
+            >
+              {ext.text}
+            </span>
+          ) : audioState === 'running' ? (
             <span className="detected" data-testid="detected-bpm">
               {s?.detectedBpm != null ? `detected ${s.detectedBpm.toFixed(1)}` : 'listening…'}
             </span>
@@ -169,12 +184,16 @@ export function BeatPanel({ beat, audioState, onAudioSetup }: BeatPanelProps) {
         <button
           className="tap"
           data-testid="tap-button"
+          data-learn={targetKey({ kind: 'tap' })}
+          disabled={!!ext}
           onClick={() => beat.command({ type: 'tap' })}
         >
           TAP{s && s.taps > 0 ? ` ${s.taps}` : ''}
         </button>
         <button
           data-testid="resync-button"
+          data-learn={targetKey({ kind: 'resync' })}
+          disabled={source === 'link'}
           title="Mark now as beat 1 of the bar (Enter)"
           onClick={() => beat.command({ type: 'resyncDownbeat' })}
         >
@@ -182,6 +201,8 @@ export function BeatPanel({ beat, audioState, onAudioSetup }: BeatPanelProps) {
         </button>
         <button
           aria-label="Nudge earlier"
+          data-learn={targetKey({ kind: 'nudge', dir: -1 })}
+          disabled={!!ext}
           title="Move the beat grid earlier (←)"
           onClick={() => beat.command({ type: 'nudge', ms: -NUDGE_MS })}
         >
@@ -189,6 +210,8 @@ export function BeatPanel({ beat, audioState, onAudioSetup }: BeatPanelProps) {
         </button>
         <button
           aria-label="Nudge later"
+          data-learn={targetKey({ kind: 'nudge', dir: 1 })}
+          disabled={!!ext}
           title="Move the beat grid later (→)"
           onClick={() => beat.command({ type: 'nudge', ms: NUDGE_MS })}
         >
@@ -196,12 +219,14 @@ export function BeatPanel({ beat, audioState, onAudioSetup }: BeatPanelProps) {
         </button>
         <button
           aria-label="Halve tempo"
+          disabled={source === 'midi'}
           onClick={() => beat.command({ type: 'multiply', factor: 0.5 })}
         >
           ÷2
         </button>
         <button
           aria-label="Double tempo"
+          disabled={source === 'midi'}
           onClick={() => beat.command({ type: 'multiply', factor: 2 })}
         >
           ×2
@@ -210,13 +235,14 @@ export function BeatPanel({ beat, audioState, onAudioSetup }: BeatPanelProps) {
       <div className="row tempo-row2">
         <button
           data-testid="lock-toggle"
+          disabled={!!ext}
           className={locked ? 'on' : ''}
           onClick={() => beat.command({ type: locked ? 'auto' : 'lock' })}
           title={locked ? 'Follow the detected tempo again' : 'Freeze the current tempo'}
         >
           {locked ? 'Unlock (Auto)' : 'Lock tempo'}
         </button>
-        <BpmEntry beat={beat} />
+        <BpmEntry beat={beat} disabled={source === 'midi'} />
       </div>
     </section>
   )
@@ -318,6 +344,65 @@ export function ClockSettings({ beat }: { beat: BeatLink }) {
         />
         <span className="hint">BPM (≥ 1 octave)</span>
       </div>
+    </div>
+  )
+}
+
+type SourceChoice = 'audio' | 'manual' | 'midi' | 'link'
+const SOURCE_CHOICES: { id: SourceChoice; label: string; hint: string }[] = [
+  { id: 'audio', label: 'Audio detection', hint: 'Follows the beat in the music' },
+  { id: 'manual', label: 'Tap / manual', hint: 'Tap, type a BPM, or freeze the tempo' },
+  { id: 'midi', label: 'MIDI clock', hint: 'Follows clock from a DJ mixer, drum machine or DAW' },
+  {
+    id: 'link',
+    label: 'Ableton Link',
+    hint: 'Shares tempo and bars with Link apps on the network',
+  },
+]
+
+/** Where tempo and phase come from (Setup → Clock). */
+export function ClockSourcePicker({ beat }: { beat: BeatLink }) {
+  const s = beat.state?.settings
+  const current: SourceChoice = !s
+    ? 'audio'
+    : s.clockSource !== 'internal'
+      ? s.clockSource
+      : s.tempoMode === 'auto'
+        ? 'audio'
+        : 'manual'
+  const choose = (c: SourceChoice) => {
+    if (c === 'midi' || c === 'link') {
+      beat.command({ type: 'setClockSource', source: c })
+      return
+    }
+    beat.command({ type: 'setClockSource', source: 'internal' })
+    beat.command({ type: c === 'audio' ? 'auto' : 'lock' })
+  }
+  const ext = beat.state?.external
+  return (
+    <div className="clock-source">
+      <div className="clock-source-options" role="group" aria-label="Tempo source">
+        {SOURCE_CHOICES.map((o) => (
+          <button
+            key={o.id}
+            className={current === o.id ? 'on' : ''}
+            aria-pressed={current === o.id}
+            title={o.hint}
+            onClick={() => choose(o.id)}
+          >
+            <span className="clock-source-name">{o.label}</span>
+            <span className="clock-source-hint">{o.hint}</span>
+          </button>
+        ))}
+      </div>
+      {ext && (
+        <p
+          className={`clock-source-status ${ext.ok ? 'ok' : 'bad'}`}
+          data-testid="clock-source-status"
+        >
+          {ext.text}
+        </p>
+      )}
     </div>
   )
 }

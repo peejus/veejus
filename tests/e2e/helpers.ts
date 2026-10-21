@@ -54,6 +54,7 @@ export interface OutputTestState {
     }
   >
   takeoverActive: boolean
+  layersConfig: import('../../src/shared/layers').LayersConfig
   fx: { passes: number; history: number }
   current: {
     id: string
@@ -72,11 +73,17 @@ export interface AppHandles {
   output: Page
 }
 
-export async function launchApp(extraArgs: string[] = []): Promise<AppHandles> {
+/** A fresh, empty app profile folder. */
+export const newProfile = () => mkdtempSync(join(tmpdir(), 'veejus-test-'))
+
+export async function launchApp(
+  extraArgs: string[] = [],
+  /** Reuse a profile (to test that settings persist); a fresh one by default. */
+  profile: string = newProfile(),
+): Promise<AppHandles> {
   const app = await electron.launch({
     args: [MAIN, ...extraArgs],
-    // A fresh profile per launch: first-run state, no leftovers from earlier runs.
-    env: { ...process.env, VEEJUS_USER_DATA: mkdtempSync(join(tmpdir(), 'veejus-test-')) },
+    env: { ...process.env, VEEJUS_USER_DATA: profile },
   })
   const find = async (title: string) => {
     await expect
@@ -147,7 +154,7 @@ export function sendToOutput(control: Page, msg: unknown) {
   )
 }
 
-export type SetupTabName = 'Audio' | 'Output' | 'Clock' | 'Diagnostics'
+export type SetupTabName = 'Audio' | 'Output' | 'Clock' | 'MIDI' | 'Diagnostics'
 
 /** Open the Setup drawer (if closed) at a tab. */
 export async function openSetup(control: Page, tab: SetupTabName) {

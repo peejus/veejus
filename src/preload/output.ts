@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { Channel, type ClipInfo, type ControlToOutput, type OutputBridge } from '@shared/protocol'
+import {
+  Channel,
+  type ClipInfo,
+  type ControlToOutput,
+  type LinkSample,
+  type OutputBridge,
+} from '@shared/protocol'
 
 function subscribe<T>(channel: string, handler: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T) => handler(payload)
@@ -13,6 +19,7 @@ const bridge: OutputBridge = {
   onControlMessage: (handler) => subscribe<ControlToOutput>(Channel.toOutput, handler),
   onLibrary: (handler) => subscribe<ClipInfo[]>(Channel.library, handler),
   getLibrary: () => ipcRenderer.invoke(Channel.getLibrary),
+  onLink: (handler) => subscribe<LinkSample>(Channel.link, handler),
 }
 
 contextBridge.exposeInMainWorld('veejus', bridge)
