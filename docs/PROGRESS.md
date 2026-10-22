@@ -1549,7 +1549,7 @@ This frees cyan to mean only **Overlay B**.
 
 ---
 
-## Phase 8: Sets, persistence, output and hardening (completed 2026-10-21, awaiting approval)
+## Phase 8: Sets, persistence, output and hardening (completed and approved 2026-10-21)
 
 ### What was built
 
@@ -1714,3 +1714,5 @@ This frees cyan to mean only **Overlay B**.
 - **Restoring after a crash uses the last autosave**, so up to about 1.5 s of the latest changes can be lost.
 - **"Search a folder" matches by file name.** Two different clips with the same name in different folders resolve to the first one found.
 - **Degradation level 3 renders at 75%,** which is visibly softer. It only kicks in after levels 1–2 didn't restore the frame rate.
+
+**Approval notes (2026-10-21):** Phase 8 approved. The installer acceptance check (install and run on a clean Windows machine) is with the user: they'll run `dist/Veejus Setup 1.0.0.exe` on a clean machine themselves. Phases 0–8 are complete. Phase 9+ (the backlog) needs approval before starting.
