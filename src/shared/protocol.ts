@@ -7,6 +7,9 @@
 
 import type { ClipKind } from './mediaTypes'
 import { FX_SCOPES, isFxConfig, type FxConfig, type FxScope } from './fx'
+import { isTag } from './pads'
+import { isOutputOptions, type OutputOptions } from './output'
+import { checkSet, type SetClip, type VeejusSet } from './set'
 import {
   isAnalysisSettings,
   isAudioDeviceList,
@@ -81,6 +84,9 @@ export interface ClipInfo {
   sizeBytes: number
   /** URL the renderers load the file from. */
   url: string
+  /** Collections the clip belongs to (e.g. "Air Horns"); random pads can pick from them. */
+  tags: string[]
+  favorite: boolean
 }
 
 export type FitMode = 'contain' | 'cover' | 'stretch' | 'original'
@@ -116,6 +122,8 @@ export type ControlToOutput =
   | { type: 'padPress'; padId: string; spec: PadSpec; velocity?: number }
   /** Fire the armed drop on the next beat. */
   | { type: 'dropNow' }
+  /** Letterbox and render resolution. */
+  | { type: 'setOutputOptions'; options: OutputOptions }
   /** A pad was released (matters for 'hold' mode). */
   | { type: 'padRelease'; padId: string }
   /** Arm a pad for the drop, or disarm it if already armed. */
@@ -189,6 +197,15 @@ export type OutputToControl =
    * ('opacity', 'scale', '<effectId>.<param>' ...). Only modulated targets are included.
    */
   | { type: 'fxLive'; values: FxLiveValues }
+  /** Output health, sent when it changes (and with each stats update). */
+  | { type: 'health'; health: OutputHealth }
+
+export interface OutputHealth {
+  /** Graceful-degradation level, 0 (normal) .. 3 (see core/watchdog). */
+  level: number
+  /** GPU memory held by render targets and clip textures, MB (estimate). */
+  gpuMB: number
+}
 
 export type FxLiveValues = Partial<Record<FxScope, Record<string, number>>>
 
@@ -250,6 +267,21 @@ export type MainRequest =
   /** Show a native picker, then import the chosen files or folder. */
   | { type: 'pickAndImport'; mode: 'files' | 'folder' }
   | { type: 'removeClips'; ids: string[] }
+  /** Change a clip's collections and/or favorite flag. */
+  | { type: 'setClipMeta'; id: string; tags?: string[]; favorite?: boolean }
+  /** Save the set: to `path`, or ask where (no path yet, or Save As). */
+  | { type: 'saveSet'; set: VeejusSet; path: string | null; saveAs: boolean }
+  /** Open a set file (ask which when `path` is null). Replaces the library. */
+  | { type: 'openSet'; path: string | null }
+  /** Start an empty set (clears the library). */
+  | { type: 'newSet' }
+  /** Keep the current state for restoring after a restart or crash. */
+  | { type: 'autosave'; set: VeejusSet; path: string | null; dirty: boolean }
+  /** The state autosaved last time, if any (loaded into the library like openSet). */
+  | { type: 'restoreSession' }
+  | { type: 'listRecentSets' }
+  /** Look for missing clips by file name in a folder (ask which when null). */
+  | { type: 'relink'; folder: string | null; clips: { id: string; name: string }[] }
 
 export interface ImportResult {
   added: number
@@ -261,7 +293,29 @@ export type MainResponse =
   | { type: 'outputState'; state: OutputWindowState }
   | { type: 'library'; clips: ClipInfo[] }
   | { type: 'imported'; result: ImportResult }
+  | { type: 'setSaved'; path: string }
+  | {
+      type: 'setLoaded'
+      set: VeejusSet
+      path: string | null
+      dirty: boolean
+      /** Old clip id -> id of the file found now (paths moved). */
+      idMap: Record<string, string>
+      /** Clips that couldn't be found. */
+      missing: SetClip[]
+    }
+  | { type: 'noSession' }
+  | { type: 'recentSets'; sets: RecentSet[] }
+  | { type: 'relinked'; idMap: Record<string, string>; missing: string[] }
+  | { type: 'canceled' }
+  | { type: 'ok' }
   | { type: 'error'; message: string }
+
+export interface RecentSet {
+  path: string
+  name: string
+  exists: boolean
+}
 
 // ---------------------------------------------------------------------------
 // Validation guards. IPC payloads are untyped at runtime, so check before use.
@@ -339,6 +393,8 @@ export function isControlToOutput(v: unknown): v is ControlToOutput {
     case 'stopAll':
     case 'dropNow':
       return true
+    case 'setOutputOptions':
+      return isOutputOptions(v.options)
     case 'setTriggerSettings':
       return isTriggerSettings(v.settings)
     case 'setLayers':
@@ -416,6 +472,14 @@ export function isOutputToControl(v: unknown): v is OutputToControl {
       )
     case 'fxLive':
       return isFxLiveValues(v.values)
+    case 'health':
+      return (
+        isObj(v.health) &&
+        isFiniteNum(v.health.level) &&
+        v.health.level >= 0 &&
+        v.health.level <= 3 &&
+        isFiniteNum(v.health.gpuMB)
+      )
     case 'layerState':
       return (
         isObj(v.layers) &&
@@ -478,6 +542,40 @@ export function isMainRequest(v: unknown): v is MainRequest {
       return v.mode === 'files' || v.mode === 'folder'
     case 'removeClips':
       return isStringArray(v.ids)
+    case 'saveSet':
+      return (
+        checkSet(v.set).ok &&
+        (v.path === null || typeof v.path === 'string') &&
+        typeof v.saveAs === 'boolean'
+      )
+    case 'openSet':
+      return v.path === null || typeof v.path === 'string'
+    case 'newSet':
+    case 'restoreSession':
+    case 'listRecentSets':
+      return true
+    case 'autosave':
+      return (
+        checkSet(v.set).ok &&
+        (v.path === null || typeof v.path === 'string') &&
+        typeof v.dirty === 'boolean'
+      )
+    case 'relink':
+      return (
+        (v.folder === null || typeof v.folder === 'string') &&
+        Array.isArray(v.clips) &&
+        v.clips.length <= 20000 &&
+        v.clips.every(
+          (c: unknown) => isObj(c) && typeof c.id === 'string' && typeof c.name === 'string',
+        )
+      )
+    case 'setClipMeta':
+      return (
+        typeof v.id === 'string' &&
+        (v.tags === undefined ||
+          (Array.isArray(v.tags) && v.tags.length <= 32 && v.tags.every(isTag))) &&
+        (v.favorite === undefined || typeof v.favorite === 'boolean')
+      )
     default:
       return false
   }

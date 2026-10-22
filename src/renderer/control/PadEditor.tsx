@@ -293,14 +293,32 @@ const beatsLabel = (b: number) =>
 
 function sourceValue(s: PadSource | null): string {
   if (!s) return ''
-  return s.kind === 'clip' ? `clip:${s.clipId}` : `random:${s.folder ?? ''}`
+  switch (s.kind) {
+    case 'clip':
+      return `clip:${s.clipId}`
+    case 'collection':
+      return `collection:${s.tag}`
+    case 'favorites':
+      return 'favorites'
+    case 'random':
+      return `random:${s.folder ?? ''}`
+  }
 }
 
 function sourceFromValue(v: string): PadSource | null {
   if (!v) return null
   if (v.startsWith('clip:')) return { kind: 'clip', clipId: v.slice(5) }
+  if (v.startsWith('collection:')) return { kind: 'collection', tag: v.slice('collection:'.length) }
+  if (v === 'favorites') return { kind: 'favorites' }
   const folder = v.slice('random:'.length)
   return { kind: 'random', folder: folder || null }
+}
+
+/** Every collection used in the library, sorted. */
+function collections(clips: ClipInfo[]): string[] {
+  return [...new Set(clips.flatMap((c) => c.tags))].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  )
 }
 
 /** Parent folders of the library's clips, for random pads. */
@@ -384,6 +402,12 @@ export function PadEditor({ pads, clips }: { pads: PadsLink; clips: ClipInfo[] }
           <option value="">(empty)</option>
           <optgroup label="Random clip">
             <option value="random:">Random from all clips</option>
+            <option value="favorites">Random from ★ favorites</option>
+            {collections(clips).map((t) => (
+              <option key={`c-${t}`} value={`collection:${t}`}>
+                Random from collection: {t}
+              </option>
+            ))}
             {folders(clips).map((f) => (
               <option key={f} value={`random:${f}`}>
                 Random from {f.split('/').pop()}

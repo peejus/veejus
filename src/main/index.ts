@@ -24,6 +24,15 @@ import {
 } from '@shared/protocol'
 import { Library } from './library'
 import { LinkManager, linkModulePath } from './link'
+import {
+  SetStore,
+  findFilesByName,
+  locateClip,
+  readSetFile,
+  withRelativePaths,
+  writeAtomic,
+} from './sets'
+import { SET_EXTENSION, type SetClip, type VeejusSet } from '@shared/set'
 import { handleMediaProtocol, registerMediaScheme } from './mediaProtocol'
 
 // Keep paused, preloaded video players decoded so a trigger starts on the next frame,
@@ -38,13 +47,18 @@ if (process.env['VEEJUS_HW_VIDEO_DECODE'] !== '1') {
   app.commandLine.appendSwitch('disable-accelerated-video-decode')
 }
 registerMediaScheme()
+// Never show Electron's error dialog on stage: log the error and keep running.
+process.on('uncaughtException', (err) => console.error('[veejus] uncaught exception:', err))
+process.on('unhandledRejection', (err) => console.error('[veejus] unhandled rejection:', err))
 // Tests run each launch in a fresh profile so window storage never leaks between runs (or
 // into a performer's own settings).
 if (process.env['VEEJUS_USER_DATA']) app.setPath('userData', process.env['VEEJUS_USER_DATA'])
 
 const library = new Library()
-const link = new LinkManager(linkModulePath(__dirname), (sample) =>
-  outputWin?.webContents.send(Channel.link, sample),
+const sets = new SetStore(app.getPath('userData'))
+const link = new LinkManager(
+  linkModulePath(__dirname, app.isPackaged, process.resourcesPath),
+  (sample) => outputWin?.webContents.send(Channel.link, sample),
 )
 let controlWin: BrowserWindow | null = null
 let outputWin: BrowserWindow | null = null
@@ -83,9 +97,26 @@ function createControlWindow(): BrowserWindow {
     controlWin = null
     app.quit()
   })
+  // A crashed control UI reloads and restores the autosaved set; the output keeps playing.
+  recoverOnCrash(win, 'control')
   loadPage(win, 'control')
   return win
 }
+
+/** Reload a window whose renderer died (never leave a dead window or an error dialog). */
+function recoverOnCrash(win: BrowserWindow, page: 'control' | 'output'): void {
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error(`[veejus] ${page} renderer gone: ${details.reason} (${details.exitCode})`)
+    crashLog.push({ page, reason: details.reason, at: Date.now() })
+    if (quitting || win.isDestroyed() || details.reason === 'clean-exit') return
+    // Back off if it keeps dying, so a crash loop can't spin the CPU.
+    const recent = crashLog.filter((c) => c.page === page && Date.now() - c.at < 60_000)
+    setTimeout(() => !win.isDestroyed() && loadPage(win, page), recent.length > 3 ? 5000 : 200)
+  })
+  win.webContents.on('unresponsive', () => console.warn(`[veejus] ${page} window unresponsive`))
+}
+
+const crashLog: { page: string; reason: string; at: number }[] = []
 
 function createOutputWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -119,6 +150,9 @@ function createOutputWindow(): BrowserWindow {
     win.hide()
   })
   win.on('closed', () => (outputWin = null))
+  // A crashed output reloads in place (same display, still fullscreen); the black window
+  // background shows meanwhile, never the desktop.
+  recoverOnCrash(win, 'output')
   win.on('enter-full-screen', broadcastOutputState)
   win.on('leave-full-screen', broadcastOutputState)
   win.on('show', broadcastOutputState)
@@ -239,6 +273,113 @@ async function pickPaths(mode: 'files' | 'folder'): Promise<string[]> {
   return result.canceled ? [] : result.filePaths
 }
 
+const SET_FILTERS = [{ name: 'Veejus set', extensions: [SET_EXTENSION] }]
+
+/** Replace the library with a set's clips, finding moved media. */
+async function loadSet(
+  set: VeejusSet,
+  setPath: string | null,
+  dirty: boolean,
+): Promise<MainResponse> {
+  library.clear()
+  const found: { clip: SetClip; path: string }[] = []
+  const missing: SetClip[] = []
+  for (const clip of set.clips) {
+    const path = locateClip(clip, setPath)
+    if (path) found.push({ clip, path })
+    else missing.push(clip)
+  }
+  const ids = await library.load(
+    found.map(({ clip, path }) => ({ path, tags: clip.tags, favorite: clip.favorite })),
+  )
+  const idMap: Record<string, string> = {}
+  for (const { clip, path } of found) {
+    const id = ids.get(path)
+    if (id && id !== clip.id) idMap[clip.id] = id
+  }
+  broadcastLibrary()
+  return { type: 'setLoaded', set, path: setPath, dirty, idMap, missing }
+}
+
+async function saveSet(
+  set: VeejusSet,
+  path: string | null,
+  saveAs: boolean,
+): Promise<MainResponse> {
+  let target = path
+  if (!target || saveAs) {
+    const options: Electron.SaveDialogOptions = {
+      title: 'Save set',
+      defaultPath: target ?? join(app.getPath('documents'), `My set.${SET_EXTENSION}`),
+      filters: SET_FILTERS,
+    }
+    const r = controlWin
+      ? await dialog.showSaveDialog(controlWin, options)
+      : await dialog.showSaveDialog(options)
+    if (r.canceled || !r.filePath) return { type: 'canceled' }
+    target = r.filePath
+  }
+  await writeAtomic(target, JSON.stringify(withRelativePaths(set, target), null, 2))
+  await sets.addRecent(target)
+  return { type: 'setSaved', path: target }
+}
+
+async function openSet(path: string | null): Promise<MainResponse> {
+  let target = path
+  if (!target) {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Open set',
+      properties: ['openFile'],
+      filters: SET_FILTERS,
+    }
+    const r = controlWin
+      ? await dialog.showOpenDialog(controlWin, options)
+      : await dialog.showOpenDialog(options)
+    if (r.canceled || !r.filePaths[0]) return { type: 'canceled' }
+    target = r.filePaths[0]
+  }
+  const read = await readSetFile(target)
+  if (!read.ok) return { type: 'error', message: read.reason }
+  await sets.addRecent(target)
+  return loadSet(read.set, target, false)
+}
+
+async function relink(
+  folder: string | null,
+  clips: { id: string; name: string }[],
+): Promise<MainResponse> {
+  let dir = folder
+  if (!dir) {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Find missing clips in…',
+      properties: ['openDirectory'],
+    }
+    const r = controlWin
+      ? await dialog.showOpenDialog(controlWin, options)
+      : await dialog.showOpenDialog(options)
+    if (r.canceled || !r.filePaths[0]) return { type: 'canceled' }
+    dir = r.filePaths[0]
+  }
+  const found = await findFilesByName(
+    dir,
+    clips.map((c) => c.name),
+  )
+  const idMap: Record<string, string> = {}
+  const missing: string[] = []
+  for (const c of clips) {
+    const path = found.get(c.name.toLowerCase())
+    if (!path) {
+      missing.push(c.id)
+      continue
+    }
+    const ids = await library.load([{ path, tags: [], favorite: false }])
+    const id = ids.get(path)
+    if (id) idMap[c.id] = id
+  }
+  if (Object.keys(idMap).length > 0) broadcastLibrary()
+  return { type: 'relinked', idMap, missing }
+}
+
 async function importAndBroadcast(paths: string[]): Promise<MainResponse> {
   const result = await library.importPaths(paths)
   if (result.added > 0) broadcastLibrary()
@@ -272,6 +413,28 @@ async function handleMainRequest(req: MainRequest): Promise<MainResponse> {
     case 'removeClips':
       if (library.remove(req.ids) > 0) broadcastLibrary()
       return { type: 'library', clips: library.list() }
+    case 'setClipMeta':
+      if (library.setMeta(req.id, req)) broadcastLibrary()
+      return { type: 'library', clips: library.list() }
+    case 'saveSet':
+      return saveSet(req.set, req.path, req.saveAs)
+    case 'openSet':
+      return openSet(req.path)
+    case 'newSet':
+      library.clear()
+      broadcastLibrary()
+      return { type: 'ok' }
+    case 'autosave':
+      await sets.writeAutosave({ set: req.set, path: req.path, dirty: req.dirty })
+      return { type: 'ok' }
+    case 'restoreSession': {
+      const saved = await sets.readAutosave()
+      return saved ? loadSet(saved.set, saved.path, saved.dirty) : { type: 'noSession' }
+    }
+    case 'listRecentSets':
+      return { type: 'recentSets', sets: await sets.recent() }
+    case 'relink':
+      return relink(req.folder, req.clips)
   }
 }
 

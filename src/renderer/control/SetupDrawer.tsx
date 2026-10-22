@@ -2,19 +2,32 @@ import type { DisplayInfo, FrameStatsSnapshot, MediaStats } from '@shared/protoc
 import { AudioPanel } from './AudioPanel'
 import { ClockSettings, ClockSourcePicker } from './BeatPanel'
 import { MidiSetup } from './MidiSetup'
+import { ShortcutList } from './ShortcutSheet'
+import {
+  ASPECTS,
+  ASPECT_LABELS,
+  RESOLUTIONS,
+  RESOLUTION_LABELS,
+  type Aspect,
+  type OutputOptions,
+  type Resolution,
+} from '@shared/output'
+import type { OutputHealth } from '@shared/protocol'
+import { LEVEL_LABELS } from '@core/watchdog'
 import type { MidiLink } from './useMidi'
 import type { FxConfig } from '@shared/fx'
 import type { AudioLink } from './useAudio'
 import type { BeatLink } from './useBeat'
 import type { OutputLink } from './useOutputLink'
 
-export const SETUP_TABS = ['audio', 'output', 'clock', 'midi', 'diagnostics'] as const
+export const SETUP_TABS = ['audio', 'output', 'clock', 'midi', 'keys', 'diagnostics'] as const
 export type SetupTab = (typeof SETUP_TABS)[number]
 const TAB_LABELS: Record<SetupTab, string> = {
   audio: 'Audio',
   output: 'Output',
   clock: 'Clock',
   midi: 'MIDI',
+  keys: 'Keys',
   diagnostics: 'Diagnostics',
 }
 
@@ -47,6 +60,9 @@ interface Props {
   onMoveOutput(displayId: number): void
   midi: MidiLink
   fx: FxConfig
+  outputOptions: OutputOptions
+  onOutputOptions(o: OutputOptions): void
+  health: OutputHealth
 }
 
 /**
@@ -101,6 +117,12 @@ export function SetupDrawer(p: Props) {
         <div role="tabpanel" hidden={p.tab !== 'midi'}>
           <MidiSetup midi={p.midi} fx={p.fx} />
         </div>
+        <div role="tabpanel" hidden={p.tab !== 'keys'}>
+          <section className="panel">
+            <h2>Keyboard shortcuts</h2>
+            <ShortcutList />
+          </section>
+        </div>
         <div role="tabpanel" hidden={p.tab !== 'diagnostics'}>
           <Diagnostics
             overlay={p.overlay}
@@ -108,6 +130,7 @@ export function SetupDrawer(p: Props) {
             pingMs={p.link.pingMs}
             stats={p.link.stats}
             mediaStats={p.link.mediaStats}
+            health={p.health}
           />
         </div>
       </div>
@@ -157,6 +180,46 @@ function OutputSetup(p: Props) {
       </section>
 
       <section className="panel">
+        <h2>Picture</h2>
+        <label className="field">
+          <span className="label">Shape</span>
+          <select
+            aria-label="Output shape"
+            value={p.outputOptions.aspect}
+            onChange={(e) =>
+              p.onOutputOptions({ ...p.outputOptions, aspect: e.target.value as Aspect })
+            }
+          >
+            {ASPECTS.map((a) => (
+              <option key={a} value={a}>
+                {ASPECT_LABELS[a]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="label">Resolution</span>
+          <select
+            aria-label="Output resolution"
+            value={p.outputOptions.resolution}
+            onChange={(e) =>
+              p.onOutputOptions({ ...p.outputOptions, resolution: e.target.value as Resolution })
+            }
+          >
+            {RESOLUTIONS.map((r) => (
+              <option key={r} value={r}>
+                {RESOLUTION_LABELS[r]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="hint">
+          A shape other than “Fill” adds black bars (for projectors, LED walls or vertical screens).
+          A lower resolution eases the GPU; the picture is scaled up to fit.
+        </p>
+      </section>
+
+      <section className="panel">
         <h2>Background</h2>
         <p className="hint">Shown wherever no clip covers the screen.</p>
         <div className="row">
@@ -192,6 +255,7 @@ function OutputSetup(p: Props) {
 }
 
 function Diagnostics(p: {
+  health: OutputHealth
   overlay: boolean
   onToggleOverlay(): void
   pingMs: number | null
@@ -229,6 +293,10 @@ function Diagnostics(p: {
             <dd>{stats.frameTimeMaxMs.toFixed(2)} ms</dd>
             <dt>Dropped (1s)</dt>
             <dd>{stats.droppedFrames}</dd>
+            <dt>Quality</dt>
+            <dd data-testid="degrade-level">{LEVEL_LABELS[p.health.level]}</dd>
+            <dt>GPU targets</dt>
+            <dd>~{p.health.gpuMB} MB</dd>
           </>
         )}
       </dl>

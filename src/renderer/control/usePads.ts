@@ -40,6 +40,8 @@ export interface PadsLink {
   release(pad: PadRef): void
   arm(pad: PadRef): void
   stopAll(): void
+  /** Replace every bank and setting (opening a set). */
+  load(state: { banks: PadConfig[][]; settings: TriggerSettings; bank: number }): void
 }
 
 const emptyBanks = (): PadConfig[][] =>
@@ -152,6 +154,17 @@ export function usePads(): PadsLink {
   )
   const stopAll = useCallback(() => bridge.sendToOutput({ type: 'stopAll' }), [])
 
+  const load = useCallback(
+    (state: { banks: PadConfig[][]; settings: TriggerSettings; bank: number }) => {
+      setBanks(state.banks)
+      setBank(state.bank)
+      select(null)
+      setSettingsState(state.settings)
+      bridge.sendToOutput({ type: 'setTriggerSettings', settings: state.settings })
+    },
+    [],
+  )
+
   return {
     banks,
     bank,
@@ -168,6 +181,7 @@ export function usePads(): PadsLink {
     release,
     arm,
     stopAll,
+    load,
   }
 }
 

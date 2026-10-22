@@ -18,9 +18,11 @@
     "fixtures:audio": "tsx --tsconfig tsconfig.node.json scripts/make-audio-fixtures.ts",
     "analyze": "tsx --tsconfig tsconfig.node.json scripts/analyze-audio.ts",
     "fixtures:perf": "node scripts/make-fixtures.mjs --perf",
-    "build:link": "node scripts/build-link.mjs"
+    "build:link": "node scripts/build-link.mjs",
+    "soak": "node scripts/soak.mjs",
+    "dist": "electron-vite build && electron-builder --win"
   },
-  "author": "",
+  "author": "Veejus",
   "license": "UNLICENSED",
   "type": "commonjs",
   "devDependencies": {
@@ -31,6 +33,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^44.9.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^6.0.0",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",

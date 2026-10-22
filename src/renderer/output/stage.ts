@@ -4,6 +4,12 @@ import type { Rgb } from '@shared/protocol'
 import { effectIsActive, type ResolvedEffect } from '@core/modulation/modulation'
 import { EFFECT_DEFS } from '@shared/fx'
 import { EFFECT_FS, EFFECT_INDEX } from './effectShader'
+import {
+  DEFAULT_OUTPUT_OPTIONS,
+  pictureLayout,
+  type OutputOptions,
+  type PictureLayout,
+} from '@shared/output'
 import { compileProgram, createClipTexture, uploadTexture, type TextureSource } from './gl'
 
 /**
@@ -307,10 +313,31 @@ export class Stage {
     }
   }
 
-  /** Make sure the accumulation targets match the canvas size. */
+  /** Output options (letterbox, resolution) and the watchdog's render scale (0..1]. */
+  private options: OutputOptions = DEFAULT_OUTPUT_OPTIONS
+  private renderScale = 1
+  private layout: PictureLayout = {
+    viewport: { x: 0, y: 0, width: 1, height: 1 },
+    render: { width: 1, height: 1 },
+  }
+
+  setOptions(options: OutputOptions): void {
+    this.options = { ...options }
+  }
+
+  /** Render at a fraction of the normal size (graceful degradation). */
+  setRenderScale(scale: number): void {
+    this.renderScale = Math.min(1, Math.max(0.25, scale))
+  }
+
+  /** Make sure the accumulation targets match the picture's render size. */
   private ensureTargets(): boolean {
     if (!this.gl || this.lost) return false
-    const { width, height } = this.canvas
+    const l = pictureLayout(this.canvas.width, this.canvas.height, this.options)
+    l.render.width = Math.max(1, Math.round(l.render.width * this.renderScale))
+    l.render.height = Math.max(1, Math.round(l.render.height * this.renderScale))
+    this.layout = l
+    const { width, height } = l.render
     if (!this.accum || this.accum.width !== width || this.accum.height !== height) {
       for (const t of [this.accum, this.dst, this.fxA, this.fxB]) this.freeTarget(t)
       for (const h of this.history.values()) {
@@ -329,8 +356,29 @@ export class Stage {
     return !!this.gl && !this.lost
   }
 
+  /** The picture's render size (the window size, unless letterboxed or capped). */
   get size(): { width: number; height: number } {
+    return this.accum
+      ? { width: this.accum.width, height: this.accum.height }
+      : { width: this.canvas.width, height: this.canvas.height }
+  }
+
+  /** The output window's canvas size in device pixels. */
+  get windowSize(): { width: number; height: number } {
     return { width: this.canvas.width, height: this.canvas.height }
+  }
+
+  /** Where the picture sits in the window (letterbox), device pixels, y down. */
+  get viewport(): PictureLayout['viewport'] {
+    return { ...this.layout.viewport }
+  }
+
+  /** Rough GPU memory held by render targets, bytes (diagnostics and the budget). */
+  get targetBytes(): number {
+    const t = [this.accum, this.dst, this.fxA, this.fxB, this.preview].filter(Boolean) as Target[]
+    let n = t.reduce((a, x) => a + x.width * x.height * 4, 0)
+    for (const h of this.history.values()) n += h.cur.width * h.cur.height * 4 * 2
+    return n
   }
 
   createTexture(): StageTexture | null {
@@ -401,7 +449,10 @@ export class Stage {
     let cur = src
     for (const fx of effects) {
       if (fx.type === 'feedback') {
-        const h = this.historyFor(`${scope}/${fx.id}`)
+        const key = `${scope}/${fx.id}`
+        // Over the GPU memory budget: new trails are skipped (existing ones keep running).
+        if (!this.history.has(key) && this.history.size >= Stage.MAX_HISTORY) continue
+        const h = this.historyFor(key)
         this.effectPass(cur, h.cur, h.next, fx, beat)
         const written = h.next
         h.next = h.cur
@@ -415,6 +466,9 @@ export class Stage {
     }
     return cur
   }
+
+  /** Feedback history pairs allowed at once (GPU memory budget: 2 full-size targets each). */
+  static readonly MAX_HISTORY = 6
 
   private historyFor(key: string): { cur: Target; next: Target; usedAt: number } {
     let h = this.history.get(key)
@@ -535,12 +589,14 @@ export class Stage {
     width: number,
     height: number,
     brightness: number,
+    x = 0,
+    y = 0,
   ): void {
     const gl = this.gl!
     const src = this.final ?? this.accum!
     const m = this.masterTransform
     gl.bindFramebuffer(gl.FRAMEBUFFER, target)
-    gl.viewport(0, 0, width, height)
+    gl.viewport(x, y, width, height)
     gl.disable(gl.BLEND)
     gl.useProgram(this.masterProgram)
     gl.bindVertexArray(this.vao)
@@ -569,10 +625,21 @@ export class Stage {
   ): void {
     if (!this.gl || this.lost || !this.accum) return
     const active = fx ? fx.effects.filter(effectIsActive) : []
+    // Letterboxing: everything outside the picture is black.
+    const v = this.layout.viewport
+    const letterboxed =
+      v.x > 0 || v.y > 0 || v.width < this.canvas.width || v.height < this.canvas.height
     this.final =
       active.length > 0 ? this.runChain(this.accum, active, fx!.scope, fx!.beat) : this.accum
     this.masterTransform = transform
-    this.master(null, this.canvas.width, this.canvas.height, brightness)
+    if (letterboxed) {
+      const gl = this.gl
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height)
+      gl.clearColor(0, 0, 0, 1)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+    }
+    this.master(null, v.width, v.height, brightness, v.x, this.canvas.height - v.y - v.height)
     this.passesLastFrame = this.passes
     // Drop feedback history that no chain used recently.
     for (const [key, h] of this.history) {
@@ -635,6 +702,12 @@ export class Stage {
     gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, pixels)
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
     return { width: p.width, height: p.height, pixels }
+  }
+
+  /** Read the shown picture at fractional position (fx, fy) inside the letterbox. */
+  readPicturePixel(fx: number, fy: number): [number, number, number, number] | null {
+    const v = this.layout.viewport
+    return this.readPixel(v.x + fx * (v.width - 1), v.y + fy * (v.height - 1))
   }
 
   /** Read one pixel of the frame just shown (top-left origin). Only valid in the same task. */

@@ -6,6 +6,8 @@ import type { LibraryState } from './useLibrary'
 import { CLIP_DRAG_TYPE } from './PadGrid'
 
 const UNDO_MS = 10_000
+/** The "collection" value that means favorites. */
+const FAVORITES = '\u0000favorites'
 
 function formatDuration(ms: number): string {
   const s = ms / 1000
@@ -148,6 +150,11 @@ const Pad = memo(function Pad({
               α
             </span>
           )}
+          {clip.favorite && (
+            <span className="badge fav" title="Favorite">
+              ★
+            </span>
+          )}
           {assigned > 0 && (
             <span
               className="badge assigned"
@@ -210,6 +217,8 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }
   const [notice, setNotice] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [chosenFilter, setFilter] = useState<Filter>('all')
+  /** A collection (tag) or FAVORITES to show, or null for everything. */
+  const [chosenCollection, setCollection] = useState<string | null>(null)
   /** A removal waiting for confirmation (clearing, or clips that pads use). */
   const [confirm, setConfirm] = useState<{ ids: string[]; text: string; action: string } | null>(
     null,
@@ -292,8 +301,24 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }
   ) as Record<Filter, number>
   // A filter that no longer matches anything (say, after removing the broken clips) falls back to All.
   const filter: Filter = chosenFilter !== 'all' && counts[chosenFilter] === 0 ? 'all' : chosenFilter
+  // Collections (tags) and favorites narrow the view further.
+  const tags = [...new Set(clips.flatMap((c) => c.tags))].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  )
+  const favorites = clips.filter((c) => c.favorite).length
+  const collection =
+    chosenCollection === FAVORITES
+      ? favorites > 0
+        ? FAVORITES
+        : null
+      : chosenCollection && tags.includes(chosenCollection)
+        ? chosenCollection
+        : null
+  const inCollection = (c: ClipInfo) =>
+    collection === null || (collection === FAVORITES ? c.favorite : c.tags.includes(collection))
   const shown = clips.filter(
-    (c) => (filter === 'all' || categories.get(c.id) === filter) && matches(c, query),
+    (c) =>
+      (filter === 'all' || categories.get(c.id) === filter) && inCollection(c) && matches(c, query),
   )
   const broken = clips.filter((c) => categories.get(c.id) === 'broken')
 
@@ -370,6 +395,28 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }
               </button>
             ),
           )}
+          {(favorites > 0 || tags.length > 0) && <span className="chip-divider" />}
+          {favorites > 0 && (
+            <button
+              className={`chip${collection === FAVORITES ? ' on' : ''}`}
+              aria-pressed={collection === FAVORITES}
+              onClick={() => setCollection(collection === FAVORITES ? null : FAVORITES)}
+            >
+              ★ Favorites <span className="chip-count">{favorites}</span>
+            </button>
+          )}
+          {tags.map((t) => (
+            <button
+              key={t}
+              className={`chip tag${collection === t ? ' on' : ''}`}
+              aria-pressed={collection === t}
+              title={`Collection: ${t}`}
+              onClick={() => setCollection(collection === t ? null : t)}
+            >
+              {t}{' '}
+              <span className="chip-count">{clips.filter((c) => c.tags.includes(t)).length}</span>
+            </button>
+          ))}
           {broken.length > 0 && (
             <button
               className="subtle remove-broken"
@@ -391,7 +438,7 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }
         </div>
       )}
       {undo && (
-        <div className="confirm-bar" role="status">
+        <div className="confirm-bar undo-toast" role="status">
           <span>
             Removed {undo.count} clip{undo.count === 1 ? '' : 's'}.
           </span>

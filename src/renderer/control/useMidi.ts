@@ -87,6 +87,8 @@ export interface MidiLink {
   setFeedbackOutput(name: string | null): void
   /** Subscribe to incoming messages (for the monitor), without re-rendering the app. */
   onMessage(listener: (device: string, text: string) => void): () => void
+  /** Replace the mappings (opening a set). */
+  load(settings: MidiSettings): void
 }
 
 function loadSettings(): MidiSettings {
@@ -393,7 +395,13 @@ export function useMidi(actions: MidiActions, leds: PadLeds): MidiLink {
     }
   }, [handle])
 
+  const load = useCallback((next: MidiSettings) => {
+    ledCache.current.clear()
+    setSettings(next)
+  }, [])
+
   return {
+    load,
     supported,
     error,
     inputs: ports.inputs,

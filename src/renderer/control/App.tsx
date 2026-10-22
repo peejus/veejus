@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DisplayInfo, LayerSettings } from '@shared/protocol'
 import type { FxScope } from '@shared/fx'
 import { hexToRgb } from '@shared/color'
@@ -22,6 +22,11 @@ import { useBeat, useBeatShortcuts } from './useBeat'
 import { useLibrary } from './useLibrary'
 import { useMidi, type MidiActions, type PadLeds } from './useMidi'
 import { LearnBanner } from './MidiSetup'
+import { RelinkDialog, SetMenu } from './SetMenu'
+import { useSet } from './useSet'
+import { DEFAULT_OUTPUT_OPTIONS, type OutputOptions } from '@shared/output'
+import { isOutputToControl, type OutputHealth } from '@shared/protocol'
+import { LEVEL_LABELS } from '@core/watchdog'
 import { EFFECT_DEFS } from '@shared/fx'
 import { padId } from '@shared/pads'
 import { useOutputLink } from './useOutputLink'
@@ -180,6 +185,69 @@ export function App() {
   )
   const midi = useMidi(midiActions, padLeds)
 
+  // ---- Output options and health -----------------------------------------------
+  const [outputOptions, setOutputOptions] = useState<OutputOptions>(DEFAULT_OUTPUT_OPTIONS)
+  const [health, setHealth] = useState<OutputHealth>({ level: 0, gpuMB: 0 })
+  const latestOptions = useRef(outputOptions)
+  useEffect(() => {
+    latestOptions.current = outputOptions
+    send({ type: 'setOutputOptions', options: outputOptions })
+  }, [outputOptions, send])
+  useEffect(
+    () =>
+      bridge.onOutputMessage((msg) => {
+        if (!isOutputToControl(msg)) return
+        if (msg.type === 'health') setHealth(msg.health)
+        else if (msg.type === 'outputReady')
+          bridge.sendToOutput({ type: 'setOutputOptions', options: latestOptions.current })
+      }),
+    [],
+  )
+
+  // ---- Sets ---------------------------------------------------------------------
+  const set = useSet(
+    {
+      clips: library.clips,
+      pads: { banks: pads.banks, settings: pads.settings, bank: pads.bank },
+      layers: layers.config,
+      master: layers.master,
+      fx: fx.config,
+      beat: beat.state?.settings ?? null,
+      midi: midi.settings,
+      background: color,
+      libraryPlay: layerSettings,
+      audio: { source: audio.status.source, settings: audio.settings },
+      output: outputOptions,
+    },
+    {
+      pads: pads.load,
+      layers: layers.load,
+      fx: fx.load,
+      beat: beat.command,
+      midi: midi.load,
+      background: (hex) => applyColor(hex),
+      libraryPlay: (s) => changeLayerSettings(s),
+      audio: (source, settings) => {
+        audio.setSettings(settings)
+        audio.setSource(source)
+      },
+      output: setOutputOptions,
+    },
+  )
+  useEffect(() => {
+    ;(window as unknown as { __veejusSet: unknown }).__veejusSet = {
+      current: set.current,
+      open: (path: string) => set.open(path),
+      save: () => set.save(),
+      saveTo: (p: string) => set.saveTo(p),
+      relink: (folder: string) => set.relink(folder),
+      missing: () => set.missing.map((c) => c.name),
+      newSet: () => set.newSet(),
+      path: () => set.path,
+      dirty: () => set.dirty,
+    }
+  })
+
   const { stats } = link
   const outputDisplay = displays.find((d) => d.id === link.state.displayId)
   const outputPill = !link.connected
@@ -215,6 +283,7 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <h1>Veejus</h1>
+        <SetMenu set={set} />
         <button
           className={`pill ${outputPill.state}`}
           data-testid="output-status"
@@ -249,6 +318,17 @@ export function App() {
           </button>
         )}
         <span className="spacer" />
+        {health.level > 0 && (
+          // A pill, not a banner: nothing on screen moves when quality changes mid-show.
+          <span
+            className="pill warn health-pill"
+            role="status"
+            data-testid="health-banner"
+            title="The output was dropping frames, so Veejus reduced quality. It recovers automatically when the frame rate does."
+          >
+            Quality reduced: {LEVEL_LABELS[health.level]}
+          </span>
+        )}
         <span className="metric" data-testid="output-fps" title="Output frames per second">
           {stats ? `${stats.fps.toFixed(0)} fps` : '-- fps'}
         </span>
@@ -279,6 +359,12 @@ export function App() {
         </button>
       </header>
       <LearnBanner midi={midi} />
+      {set.error && (
+        <div className="error-banner" role="alert" onClick={set.dismissError}>
+          {set.error}
+        </div>
+      )}
+      <RelinkDialog set={set} />
 
       <div className="workspace">
         <main className="main-area">
@@ -386,6 +472,9 @@ export function App() {
           onShowOutput={() => run(request({ type: 'showOutput' }, 'outputState'))}
           midi={midi}
           fx={fx.config}
+          outputOptions={outputOptions}
+          onOutputOptions={setOutputOptions}
+          health={health}
           onMoveOutput={(displayId) =>
             run(request({ type: 'moveOutputToDisplay', displayId }, 'outputState'))
           }

@@ -49,11 +49,17 @@ To start it from the desktop or taskbar, right-click `Start-Veejus.bat` → **Sh
 | `npm run fixtures:audio`    | Write synthetic drum patterns + ground truth to `fixtures/audio`                            |
 | `npm run analyze -- <file>` | Run onset detection and beat tracking over an audio file (WAV, or MP3/FLAC/... via ffmpeg)  |
 | `npm run build:link`        | Build the optional Ableton Link module into `native/` (needs Visual Studio C++ Build Tools) |
+| `npm run dist`              | Build the Windows installer into `dist/` (unsigned; see Installing below)                   |
+| `npm run soak`              | The 60-minute soak test (memory, frame rate, crashes); `-- --minutes 5` for a short run     |
 
 The stress test is skipped until `npm run fixtures:stress` has been run once.
 
 ## Using it
 
+- **Sets:** the set name in the top bar opens **New / Open… / Save / Save as… / Recent sets** (Ctrl+O, Ctrl+S, Ctrl+Shift+S). A dot means unsaved changes.
+  - **What a set holds:** everything: the library (with collections and favorites), pads, mix, effects, clock settings, MIDI mappings, audio input, background and output options.
+  - **Moving media:** clips are found next to the set file first, so you can move a folder holding the set and its clips. If clips are missing, Veejus offers to search a folder for them by name.
+  - **Autosave:** Veejus keeps your work as you go and brings it back when you start it again, or after a crash.
 - **First run:** a **Get ready** strip at the top lists three steps: add clips, choose the audio input, choose the output screen. It disappears when all three are done, or when you press **Hide**.
 - **Colors mean the same thing everywhere:**
   - green: playing
@@ -92,7 +98,7 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
     Each modulator has an amount, a range it adds and invert. A pink **ghost** marker on the slider (and on the mixer fader for opacity) shows where the modulation is taking the value right now. **All modulators** lists them all.
 
   - **Sliders:** double-click resets to the default, **Shift-drag** fine-tunes at a tenth of the speed, and clicking the number lets you type a value. This also works on the mixer faders.
-- **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. **Search** by name or folder, and filter by type: Video, GIF / animated, Stills or Broken. **Remove N broken** clears unplayable clips in one go, with Undo. Each tile shows its name on the thumbnail, and **▣ N** shows how many pads use it; removing a clip that pads use asks first. Hover a clip for a live preview. A click only **selects** it, so browsing never changes the show. To show it on the Background layer right away (unquantized), use the **▶ Play** button on the selected clip, or double-click it. **Clear library…** asks first and offers **Undo** for 10 seconds. The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
+- **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. **Collections and favorites:** select a clip to star it or add it to collections ("Air Horns", "Drops"…); filter the library by them, and point a pad at **Random from collection** or **Random from ★ favorites**. **Search** by name or folder, and filter by type: Video, GIF / animated, Stills or Broken. **Remove N broken** clears unplayable clips in one go, with Undo. Each tile shows its name on the thumbnail, and **▣ N** shows how many pads use it; removing a clip that pads use asks first. Hover a clip for a live preview. A click only **selects** it, so browsing never changes the show. To show it on the Background layer right away (unquantized), use the **▶ Play** button on the selected clip, or double-click it. **Clear library…** asks first and offers **Undo** for 10 seconds. The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
 - **Library plays:** selecting a library clip shows it in the context panel with **▶ Play on Background**, **Stop**, and how library plays look: loop or one-shot, speed (0.25×–4×), and fit (contain, cover, stretch, original size). Changes apply live. **Stop** clears the layer.
 - **Tempo:** the BPM is detected from the audio and the beat lights follow the kicks. **Space** taps tempo, **Enter** marks "now is beat 1", **← / →** nudge the grid 10 ms. You can also type a BPM, use ×2 / ÷2, or lock the tempo. **⚙ Setup → Clock** has phase correction, a latency offset (raise it if the visuals land after the kick you hear), phrase length and tempo range. If no audio input is selected, the tempo panel says so and opens **⚙ Setup → Audio**. The output's debug overlay (off by default, because the audience sees it; turn it on under **⚙ Setup → Diagnostics**) shows a 4-light metronome.
 - **MIDI controllers:**
@@ -110,8 +116,17 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
   - Link shares tempo and bars with Ableton Live, Traktor, Rekordbox, Serato and other Link apps on the network.
   - Link needs the optional module: run `npm run build:link` once. Windows may ask to allow Veejus on the network the first time.
 - **Audio input** (⚙ Setup → Audio, or click the Audio pill): pick your mixer or audio-interface input, **System audio** (whatever this PC is playing), or the silent built-in **Test beat**. Watch the level meter, band bars and spectrum, and the **Kick** and **Snare / hat** lamps. Set **Input gain** so the level sits mostly green without lighting CLIP. **Analysis settings** has sensitivities, envelope times, crossovers and band gains. Veejus never plays audio itself.
-- **Output window** (⚙ Setup → Output, or click the Output pill): what the audience sees. Pick the display and go fullscreen there. Closing it only hides it ("Show output" brings it back). In the output window, **Esc** exits fullscreen and **F11** toggles it.
+- **Output window** (⚙ Setup → Output, or click the Output pill): what the audience sees. Pick the display and go fullscreen there. **Picture** sets the shape (fill, 16:9, 4:3, 1:1, or 9:16 for vertical screens, with black bars) and the render resolution (native, 1080p, 720p). For streaming, capture the output window in OBS (see `docs/STREAMING_PLAN.md`). Closing it only hides it ("Show output" brings it back). In the output window, **Esc** exits fullscreen and **F11** toggles it.
 
 ### Video decoding
 
 Veejus decodes video in software by default, because starting hardware decoders stalls the output for a frame or more each time a clip preloads. To try hardware decoding, start it with the environment variable `VEEJUS_HW_VIDEO_DECODE=1`.
+
+## Installing (Windows)
+
+`npm run dist` builds `dist/Veejus Setup <version>.exe`:
+
+- **Install:** a per-user installer. It doesn't need admin rights, you can choose the folder, and it adds Start menu and desktop shortcuts. Uninstall it from Windows Settings → Apps.
+- **Unsigned:** the installer isn't code-signed yet, so Windows SmartScreen shows "Windows protected your PC" the first time. Choose **More info → Run anyway**. Signing needs a code-signing certificate; electron-builder picks it up from `CSC_LINK` / `CSC_KEY_PASSWORD` when one is available.
+- **Ableton Link:** included in the installer only if you ran `npm run build:link` before `npm run dist`.
+- **Where your data lives:** sets go wherever you save them; the autosave and the recent-sets list are in `%APPDATA%\Veejus`.

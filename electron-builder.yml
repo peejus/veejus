@@ -1,0 +1,29 @@
+# Windows installer: npm run dist  (after npm run build)
+appId: com.veejus.app
+productName: Veejus
+copyright: Copyright © 2026
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+# The optional Ableton Link module (npm run build:link), if it has been built.
+extraResources:
+  - from: native
+    to: native
+    filter:
+      - abletonlink.node
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Veejus
+# Unsigned for now: Windows SmartScreen will warn on first run (see README).

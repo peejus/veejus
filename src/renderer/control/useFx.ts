@@ -30,6 +30,8 @@ export interface FxLink {
   presetActive(scope: FxScope, preset: PresetId): boolean
   togglePreset(scope: FxScope, preset: PresetId): void
   clear(scope: FxScope): void
+  /** Replace every chain (opening a set). */
+  load(config: FxConfig): void
   /** Latest modulated values from the output (see 'fxLive'); read without re-rendering. */
   live: { current: FxLiveValues }
   /** Subscribe to modulated-value updates. Returns an unsubscribe function. */
@@ -217,7 +219,13 @@ export function useFx(): FxLink {
     [edit],
   )
 
+  const load = useCallback((next: FxConfig) => {
+    setConfig(next)
+    bridge.sendToOutput({ type: 'setFx', config: next })
+  }, [])
+
   return {
+    load,
     config,
     addEffect,
     updateEffect,

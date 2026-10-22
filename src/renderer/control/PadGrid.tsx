@@ -46,8 +46,16 @@ const resolvedLayer = (config: PadConfig): LayerId =>
 function sourceLabel(config: PadConfig, clips: Map<string, ClipInfo>): string {
   const s = config.source
   if (!s) return ''
-  if (s.kind === 'clip') return clips.get(s.clipId)?.name ?? '(missing clip)'
-  return s.folder ? `Random: ${s.folder.split(/[\\/]/).pop()}` : 'Random: all'
+  switch (s.kind) {
+    case 'clip':
+      return clips.get(s.clipId)?.name ?? '(missing clip)'
+    case 'collection':
+      return `Random: ${s.tag}`
+    case 'favorites':
+      return 'Random: ★ favorites'
+    case 'random':
+      return s.folder ? `Random: ${s.folder.split(/[\\/]/).pop()}` : 'Random: all'
+  }
 }
 
 interface CellProps {
@@ -125,7 +133,7 @@ const PadCell = memo(function PadCell(props: CellProps) {
       <span className="pad-key">{keyLabel}</span>
       {!empty && (
         <span className="pad-mode" aria-hidden="true">
-          {config.source?.kind === 'random' && <span title="Random clip">⚄ </span>}
+          {config.source && config.source.kind !== 'clip' && <span title="Random clip">⚄ </span>}
           {modeIcon(config)}
         </span>
       )}

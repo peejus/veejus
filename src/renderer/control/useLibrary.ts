@@ -19,6 +19,8 @@ export interface LibraryState {
   /** Record that a play request was just sent, for latency measurement. */
   markPlayRequested(id: string): void
   remove(ids: string[]): void
+  /** Change a clip's collections and/or favorite flag. */
+  setMeta(id: string, meta: { tags?: string[]; favorite?: boolean }): void
 }
 
 /** Library contents (from main), probe results (thumbnails/meta) and output-side load states. */
@@ -102,5 +104,18 @@ export function useLibrary(): LibraryState {
     request({ type: 'removeClips', ids }, 'library').catch(console.error)
   }, [])
 
-  return { clips, probes, outputStates, playingId, lastStart, markPlayRequested, remove }
+  const setMeta = useCallback((id: string, meta: { tags?: string[]; favorite?: boolean }) => {
+    request({ type: 'setClipMeta', id, ...meta }, 'library').catch(console.error)
+  }, [])
+
+  return {
+    clips,
+    probes,
+    outputStates,
+    playingId,
+    lastStart,
+    markPlayRequested,
+    remove,
+    setMeta,
+  }
 }

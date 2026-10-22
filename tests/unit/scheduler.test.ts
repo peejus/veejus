@@ -33,7 +33,11 @@ function harness(bpm = 120, phraseBars = 8) {
   const prepared: string[] = []
   const sched = new TriggerScheduler({
     candidates: (s: PadSource) =>
-      s.kind === 'clip' ? [s.clipId] : (library[s.folder ?? 'all'] ?? []),
+      s.kind === 'clip'
+        ? [s.clipId]
+        : s.kind === 'random'
+          ? (library[s.folder ?? 'all'] ?? [])
+          : [],
     prepare: (id) => prepared.push(id),
   })
   const log: { atMs: number; action: TriggerAction }[] = []

@@ -4,6 +4,7 @@ import {
   isLinkSample,
   type ClipInfo,
   type FxLiveValues,
+  type OutputHealth,
   type LayerSettings,
   type LayerShowing,
   type OutputBridge,
@@ -32,6 +33,7 @@ import { ClipLayer } from './clipLayer'
 import { MediaManager } from './media/mediaManager'
 import { Stage } from './stage'
 import { ExternalClock } from './externalClock'
+import { Watchdog } from '@core/watchdog'
 
 const bridge = (window as unknown as { veejus: OutputBridge }).veejus
 
@@ -41,6 +43,11 @@ const BEAT_STATE_INTERVAL_MS = 100
 const FX_LIVE_INTERVAL_MS = 50
 const PREVIEW_INTERVAL_MS = 1000 / 15
 const PREVIEW_WIDTH = 320
+/** Preview monitor at watchdog level 1. */
+const PREVIEW_INTERVAL_REDUCED_MS = 1000 / 6
+const PREVIEW_WIDTH_REDUCED = 200
+/** Render scale at watchdog level 3. */
+const DEGRADED_RENDER_SCALE = 0.75
 const MB = 1024 * 1024
 
 const stage = new Stage(document.getElementById('stage') as HTMLCanvasElement)
@@ -222,10 +229,17 @@ const scheduler = new TriggerScheduler({
       const clip = libraryClips.find((c) => c.id === source.clipId)
       return clip && playable(clip) ? [clip.id] : []
     }
-    const folder = source.folder !== null ? slashes(source.folder) : null
-    return libraryClips
-      .filter((c) => playable(c) && (folder === null || folderOf(c.path) === folder))
-      .map((c) => c.id)
+    const inSource = (c: ClipInfo) => {
+      switch (source.kind) {
+        case 'collection':
+          return c.tags.includes(source.tag)
+        case 'favorites':
+          return c.favorite
+        case 'random':
+          return source.folder === null || folderOf(c.path) === slashes(source.folder)
+      }
+    }
+    return libraryClips.filter((c) => playable(c) && inSource(c)).map((c) => c.id)
   },
   prepare: (clipId) => {
     if (media.state(clipId) !== 'ready') media.load(clipId).catch(() => {})
@@ -394,6 +408,9 @@ bridge.onControlMessage((msg) => {
     case 'setFx':
       fxConfig = structuredClone(msg.config)
       break
+    case 'setOutputOptions':
+      stage.setOptions(msg.options)
+      break
     case 'setPreview':
       previewEnabled = msg.enabled
       break
@@ -504,6 +521,30 @@ function masterBrightness(): number {
   return master.blackout ? 0 : clamp01(master.brightness + (resolved?.master.opacity ?? 0))
 }
 
+// ---- graceful degradation ------------------------------------------------------
+
+const watchdog = new Watchdog()
+/** Set by the test hook, so a forced level isn't undone by real frame rates. */
+let watchdogPinned = false
+
+function applyDegradeLevel(level: number): void {
+  watchdog.level = level
+  stage.setRenderScale(level >= 3 ? DEGRADED_RENDER_SCALE : 1)
+  bridge.sendToControl({ type: 'health', health: health() })
+}
+
+function health(): OutputHealth {
+  // Render targets dominate GPU memory; clip textures add one frame per layer.
+  const clipBytes = LAYER_IDS.reduce((n, id) => {
+    const c = layers[id].current?.clip
+    return n + (c ? c.width * c.height * 4 : 0)
+  }, 0)
+  return {
+    level: watchdog.level,
+    gpuMB: Math.round((stage.targetBytes + clipBytes) / (1024 * 1024)),
+  }
+}
+
 /** JS time spent in each recent frame callback, ms. */
 const cpuMs: number[] = []
 
@@ -550,16 +591,19 @@ function frame(now: number): void {
 
   while (pixelRequests.length > 0) {
     const r = pixelRequests.shift()!
-    const { width, height } = stage.size
-    r.resolve(stage.readPixel(r.fx * (width - 1), r.fy * (height - 1)))
+    r.resolve(stage.readPicturePixel(r.fx, r.fy))
   }
   // Preview readback is asynchronous: collect a finished one, maybe start the next.
   const preview = stage.takePreview()
   if (preview && previewEnabled) bridge.sendToControl({ type: 'previewFrame', ...preview })
-  if (previewEnabled && now - lastPreviewAt >= PREVIEW_INTERVAL_MS) {
+  // Graceful degradation trims the preview first (level 1), then pauses it (level 2).
+  const level = watchdog.level
+  const previewEvery = level >= 1 ? PREVIEW_INTERVAL_REDUCED_MS : PREVIEW_INTERVAL_MS
+  const previewWidth = level >= 1 ? PREVIEW_WIDTH_REDUCED : PREVIEW_WIDTH
+  if (previewEnabled && level < 2 && now - lastPreviewAt >= previewEvery) {
     const { width, height } = stage.size
-    const ph = Math.max(1, Math.round((PREVIEW_WIDTH * height) / width))
-    if (stage.requestPreview(PREVIEW_WIDTH, ph, masterBrightness())) lastPreviewAt = now
+    const ph = Math.max(1, Math.round((previewWidth * height) / width))
+    if (stage.requestPreview(previewWidth, ph, masterBrightness())) lastPreviewAt = now
   }
   cpuMs.push(performance.now() - frameStart)
   if (cpuMs.length > 120) cpuMs.shift()
@@ -596,7 +640,14 @@ function frame(now: number): void {
   }
   if (now - lastStatsAt >= STATS_INTERVAL_MS) {
     lastStatsAt = now
-    bridge.sendToControl({ type: 'frameStats', stats: frameStats.snapshot() })
+    const snap = frameStats.snapshot()
+    bridge.sendToControl({ type: 'frameStats', stats: snap })
+    // The watchdog only judges once there's a full window of frames.
+    if (frameCount > 120 && !watchdogPinned) {
+      const changed = watchdog.update(snap.fps, now)
+      if (changed !== null) applyDegradeLevel(changed)
+    }
+    bridge.sendToControl({ type: 'health', health: health() })
     bridge.sendToControl({ type: 'mediaStats', stats: media.stats() })
   }
   requestAnimationFrame(frame)
@@ -614,6 +665,10 @@ function frame(now: number): void {
       frameCount,
       overlayVisible: !overlay.hidden,
       canvas: stage.size,
+      windowSize: stage.windowSize,
+      viewport: stage.viewport,
+      degradeLevel: watchdog.level,
+      gpuMB: health().gpuMB,
       frameStats: frameStats.snapshot(),
       cpu: {
         avgMs: cpuMs.reduce((a, b) => a + b, 0) / Math.max(1, cpuMs.length),
@@ -682,6 +737,12 @@ function frame(now: number): void {
   /** RGBA of the pixel at fractional canvas position (fx, fy), read after the next frame. */
   samplePixel: (fx: number, fy: number) =>
     new Promise<number[] | null>((resolve) => pixelRequests.push({ fx, fy, resolve })),
+  /** Force a degradation level (tests); null hands control back to the watchdog. */
+  setDegradeLevel: (level: number | null) => {
+    watchdogPinned = level !== null
+    if (level === null) watchdog.reset()
+    applyDegradeLevel(level ?? 0)
+  },
   /** Feed a MIDI message to the MIDI clock input, as if it came from a device. */
   injectMidi: (bytes: number[], atMs?: number) =>
     externalClock.midi.onMessage(bytes, atMs ?? performance.now()),

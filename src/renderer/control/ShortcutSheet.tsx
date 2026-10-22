@@ -90,31 +90,34 @@ export function ShortcutSheet({ onClose }: { onClose(): void }) {
             ✕
           </button>
         </div>
-        <div className="sheet-groups">
-          {GROUPS.map((g) => (
-            <section key={g.title}>
-              <h3>{g.title}</h3>
-              <dl>
-                {g.rows.map(([k, v]) => (
-                  <div key={k} className="sheet-row">
-                    <dt>
-                      {g.keys === false ? (
-                        <span className="sheet-action">{k}</span>
-                      ) : (
-                        <kbd>{k}</kbd>
-                      )}
-                    </dt>
-                    <dd>{v}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          ))}
-        </div>
+        <ShortcutList />
         <p className="hint">
           Keys don’t fire pads while you’re typing in a field; click an empty spot first.
         </p>
       </div>
+    </div>
+  )
+}
+
+/** Every shortcut and mouse gesture (the ? sheet, and Setup → Keys). */
+export function ShortcutList() {
+  return (
+    <div className="sheet-groups">
+      {GROUPS.map((g) => (
+        <section key={g.title}>
+          <h3>{g.title}</h3>
+          <dl>
+            {g.rows.map(([k, v]) => (
+              <div key={k} className="sheet-row">
+                <dt>
+                  {g.keys === false ? <span className="sheet-action">{k}</span> : <kbd>{k}</kbd>}
+                </dt>
+                <dd>{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ))}
     </div>
   )
 }

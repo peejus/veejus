@@ -93,7 +93,12 @@ export class LinkManager {
   }
 }
 
-/** Where the built module lives: native/ at the project root (next to out/). */
-export function linkModulePath(mainDir: string): string {
-  return join(mainDir, '..', '..', 'native', 'abletonlink.node')
+/**
+ * Where the built module lives: native/ at the project root (next to out/) when running from
+ * source, or resources/native/ in an installed app (the installer copies it there if built).
+ */
+export function linkModulePath(mainDir: string, packaged: boolean, resourcesPath: string): string {
+  return packaged
+    ? join(resourcesPath, 'native', 'abletonlink.node')
+    : join(mainDir, '..', '..', 'native', 'abletonlink.node')
 }

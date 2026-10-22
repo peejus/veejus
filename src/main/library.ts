@@ -36,6 +36,36 @@ export class Library {
     return this.clips.get(id)
   }
 
+  /** Forget every clip (a new or opened set replaces the library). */
+  clear(): void {
+    this.clips.clear()
+  }
+
+  /**
+   * Add these files in order, with their collections and favorite flags (opening a set).
+   * Returns path -> clip id for the ones that were added or already known.
+   */
+  async load(
+    entries: { path: string; tags: string[]; favorite: boolean }[],
+  ): Promise<Map<string, string>> {
+    const ids = new Map<string, string>()
+    for (const e of entries) {
+      await this.importPaths([e.path])
+      const id = clipIdForPath(e.path)
+      if (this.setMeta(id, { tags: e.tags, favorite: e.favorite })) ids.set(e.path, id)
+    }
+    return ids
+  }
+
+  /** Update a clip's collections / favorite flag. Returns false for an unknown clip. */
+  setMeta(id: string, meta: { tags?: string[]; favorite?: boolean }): boolean {
+    const clip = this.clips.get(id)
+    if (!clip) return false
+    if (meta.tags) clip.tags = [...new Set(meta.tags)].sort((a, b) => naturalCompare(a, b))
+    if (meta.favorite !== undefined) clip.favorite = meta.favorite
+    return true
+  }
+
   remove(ids: string[]): number {
     let n = 0
     for (const id of ids) if (this.clips.delete(id)) n++
@@ -76,6 +106,8 @@ export class Library {
         mime: type.mime,
         sizeBytes,
         url: clipUrl(id),
+        tags: [],
+        favorite: false,
       })
       added++
     }

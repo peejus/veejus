@@ -6,6 +6,8 @@ import {
   type FitMode,
   type LayerSettings,
 } from '@shared/protocol'
+import { useState } from 'react'
+import { MAX_TAG_LENGTH } from '@shared/pads'
 import type { LibraryState } from './useLibrary'
 
 const FIT_LABELS: Record<FitMode, string> = {
@@ -52,6 +54,8 @@ export function ClipInspector({ clip, settings, onChange, library, onPlay, onSto
         </button>
       </div>
       <p className="hint">To play it on the beat, drag it onto a pad.</p>
+
+      <ClipCollections clip={clip} library={library} />
 
       <div className="now-playing">
         <span className="label">Now playing</span>
@@ -122,6 +126,60 @@ export function ClipInspector({ clip, settings, onChange, library, onPlay, onSto
         </select>
       </label>
       <p className="hint">These apply to clips played from the library. Clips are muted.</p>
+    </div>
+  )
+}
+
+/** Favorite flag and collections (tags) for a clip; random pads can pick from collections. */
+function ClipCollections({ clip, library }: { clip: ClipInfo; library: LibraryState }) {
+  const [text, setText] = useState('')
+  const all = [...new Set(library.clips.flatMap((c) => c.tags))].sort()
+  const add = () => {
+    const tag = text.trim().slice(0, MAX_TAG_LENGTH)
+    if (tag && !clip.tags.includes(tag)) library.setMeta(clip.id, { tags: [...clip.tags, tag] })
+    setText('')
+  }
+  return (
+    <div className="clip-collections">
+      <button
+        className={`fav-toggle${clip.favorite ? ' on' : ''}`}
+        aria-pressed={clip.favorite}
+        onClick={() => library.setMeta(clip.id, { favorite: !clip.favorite })}
+      >
+        {clip.favorite ? '★ Favorite' : '☆ Add to favorites'}
+      </button>
+      <div className="tag-list" aria-label="Collections">
+        {clip.tags.map((t) => (
+          <span className="tag-chip" key={t}>
+            {t}
+            <button
+              aria-label={`Remove from ${t}`}
+              onClick={() => library.setMeta(clip.id, { tags: clip.tags.filter((x) => x !== t) })}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+        <input
+          className="tag-input"
+          aria-label="Add to collection"
+          placeholder={clip.tags.length ? 'Add another…' : 'Add to a collection…'}
+          list="veejus-collections"
+          value={text}
+          maxLength={MAX_TAG_LENGTH}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') add()
+          }}
+          onBlur={() => text.trim() && add()}
+        />
+        <datalist id="veejus-collections">
+          {all.map((t) => (
+            <option key={t} value={t} />
+          ))}
+        </datalist>
+      </div>
+      <p className="hint">Collections like “Air Horns” or “Drops” can feed random pads.</p>
     </div>
   )
 }

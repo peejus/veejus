@@ -128,6 +128,35 @@
   - **Blending:** all blending happens in `LAYER_FS` against the copy, so blend modes don't depend on fixed-function GL blending.
   - **Textures:** clip textures are premultiplied (video via the upload flag, images via premultiplied ImageBitmaps).
 
+## Sets, persistence and recovery
+
+```
+ control (useSet)                         main (sets.ts, library.ts)
+ ─────────────────                        ─────────────────────────────
+ buildSet(hooks' state) ── saveSet ─────▶ relative paths, atomic write, recent list
+ apply(set) ◀─ setLoaded {idMap, missing} ◀ openSet / restoreSession: library.clear(),
+                                            locate clips (next to the set, then old path),
+                                            library.load() with tags/favorites
+ every change (1.5 s debounce) ── autosave ─▶ userData/autosave.json
+ relink dialog ── relink {folder} ────────▶ find files by name (recursive) ─▶ idMap
+```
+
+- **`src/shared/set.ts`:** `VeejusSet` (format `veejus-set`, version 1) and `checkSet`, which validates and says _why_ a file isn't usable.
+  - A set holds the clips (absolute and relative paths, tags, favorite), pads, mix, master, effects, beat settings, MIDI mappings, background, library-play settings, audio input and output options.
+- **Clip ids come from file paths**, so a set opened where its media moved gets an `idMap` (old id → new id) and the pads are remapped. Pads that still point at missing clips stay assigned.
+- **One owner per part:** each hook exposes `load(...)` (`usePads`, `useLayers`, `useFx`, `useMidi`). The clock settings are re-sent as beat commands, because the output owns the clock.
+- **Unsaved changes:** a fingerprint of the set without its save time is compared with the one last saved or opened.
+- **Recovery:**
+  - `restoreSession` on control start (and after a control crash) loads the autosave.
+  - Main reloads a crashed window (`render-process-gone`), backing off if it keeps crashing.
+  - Uncaught errors in main are logged, never shown as dialogs.
+  - The output window's background is black, so a reload shows black, not the desktop.
+- **Graceful degradation:**
+  - `core/watchdog.ts` steps through levels 1–3 when the output stays under 52 fps for 3 s: smaller and slower preview, then preview paused, then a 75% render scale. It steps back after 15 s at 58.5 fps or more.
+  - The output reports a `health` message (level and GPU target memory).
+  - Feedback-trail buffers are capped at 6 pairs (GPU memory budget). The image-frame (768 MB) and warm-video (16) limits from Phase 1 cover clip media.
+- **Output options** (`src/shared/output.ts`): `pictureLayout()` letterboxes to a shape and caps the render size. The compositor renders at that size and the master pass draws into the letterbox viewport.
+
 ## External clocks (MIDI clock, Ableton Link)
 
 ```
@@ -248,4 +277,7 @@ fixtures/       media/ and keying/ (committed); stress/, perf/ and audio/ (gener
 
 ## Seams for later phases
 
-- **Phase 8 (saving):** `FxConfig`, `LayersConfig` and the pads are plain JSON with guards, ready to save in a set file.
+- **Spout / NDI output:** see `docs/STREAMING_PLAN.md`. Off-screen rendering with shared textures feeds an optional native sender, like the optional Link module.
+- **OSC input:** an OSC receiver would call the same `MidiActions` the MIDI service uses.
+- **Drop detection (backlog):** the analyzer's band envelopes and onset flux already reach the output each hop. A detector would arm pads through the scheduler's existing `arm`.
+- **Set format changes:** bump `SET_VERSION` and add a migration in `checkSet`. Older versions are recognized and refused with a clear message today.

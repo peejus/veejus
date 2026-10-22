@@ -1371,7 +1371,7 @@ This frees cyan to mean only **Overlay B**.
 
 ---
 
-## Phase 7: External control and sync (completed 2026-10-21, awaiting approval)
+## Phase 7: External control and sync (completed and approved 2026-10-21)
 
 ### What was built
 
@@ -1544,3 +1544,173 @@ This frees cyan to mean only **Overlay B**.
 - **Only one hardware check so far:** your nanoPAD2 was detected. The pad, fader, encoder and LED logic were tested with injected MIDI messages. The APC mini LED colors follow Akai's published protocol, but haven't been checked on a real unit. Link was tested against a real Link peer on this machine, not yet against Ableton Live or a DJ app.
 - **APC mini mk2** (RGB) uses a different LED protocol and isn't covered by the mk1 template.
 - **MIDI clock jitter:** with very jittery clock sources (some USB interfaces), the fitted tempo may wander by about 0.1 BPM. Bars stay aligned because the phase is re-read every beat.
+
+**Approval notes (2026-10-21):** Phase 7 approved as built.
+
+---
+
+## Phase 8: Sets, persistence, output and hardening (completed 2026-10-21, awaiting approval)
+
+### What was built
+
+**Sets** (the set name in the top bar)
+
+- **New, Open…, Save, Save as…** (Ctrl+O, Ctrl+S, Ctrl+Shift+S) and **Recent sets**. A dot by the name marks unsaved changes.
+- **Format:** a `.veejus` file, versioned JSON (`veejus-set`, version 1). It holds:
+  - the library, with collections and favorites
+  - all four pad banks and the trigger settings
+  - layer mix and master
+  - every effect and modulator
+  - clock settings (source, tempo, latency offset, phrase length, tempo range)
+  - MIDI mappings
+  - audio input and analysis settings
+  - background color, library-play settings and output options
+- **Media paths** are stored both relative to the set file and absolute. On opening, Veejus looks next to the set file first, so a folder holding the set and its clips can be moved or copied to another machine, then at the original path.
+- **Files are written atomically** (temporary file, then rename), so a crash mid-save never leaves a damaged set.
+- **Damaged or foreign files** are refused with a reason: "Not a Veejus set file", "saved by a newer version", "The set's pads are damaged".
+- **Missing media:** a **Missing clips** dialog lists what wasn't found, and **Search a folder…** looks for the files by name (including subfolders).
+  - Pads are re-pointed at the found files automatically.
+  - **Continue without them** keeps the pads assigned, showing "(missing clip)".
+- **Autosave and restore:**
+  - Every change is autosaved to the app profile 1.5 s later, and immediately after a save.
+  - The next start brings back exactly where you were, including the set's name and whether it had unsaved changes.
+  - The same restore runs after a control-window crash.
+
+**Library: collections and favorites** (search came with UX-5)
+
+- Select a clip to **☆ star it** or **add it to collections**, with autocomplete from existing ones. Tiles show ★.
+- The library's filter row adds a **★ Favorites** chip and one chip per collection, combinable with the type filters and search.
+- **Random pads** can pick from a collection ("Random from collection: Air Horns") or from favorites. The pad tile reads "Random: Air Horns".
+
+**Output options** (Setup → Output → Picture)
+
+- **Shape:** fill, or letterboxed to **16:9, 4:3, 1:1 or 9:16** (vertical screens and streams), centered with black bars.
+- **Resolution:** native, **1080p** or **720p**. The compositor renders at the capped size and the GPU scales it to the screen, for weaker GPUs or 4K outputs.
+- **Display choice and fullscreen** were already there (UX-2).
+- **Spout / Syphon / NDI:** not built. No candidate native module could be verified against Electron 44 on this machine. `docs/STREAMING_PLAN.md` has the plan: off-screen shared textures, then an optional Spout sender, then NDI. Today, **OBS Window Capture** of the output window is the recommended way to stream.
+
+**Performance hardening**
+
+- **Frame-drop watchdog** with graceful degradation. When the output stays under 52 fps for 3 s, quality steps down one level at a time:
+  1. preview monitor smaller and slower
+  2. preview paused
+  3. picture rendered at 75%
+
+  After 15 s at 58.5 fps or more it steps back up. The control shows a banner while degraded ("The output was dropping frames, so Veejus reduced quality: …"), and Setup → Diagnostics shows the level and GPU memory.
+
+- **GPU memory budget:** at most 6 feedback-trail buffer pairs at once (new trails beyond that are skipped). The output reports its render-target memory.
+- **Decoder pool limits** (from Phase 1) remain: 768 MB of decoded image frames and 16 warm videos, both LRU.
+
+**Crash safety**
+
+- **Control-window crash:** it reloads automatically and restores the autosaved set. The output keeps playing throughout, since it never depends on the control to draw.
+- **Output-window crash:** it reloads in place (same display, still fullscreen) over a black window background. The control re-sends the mix, effects and options as soon as it's back.
+- **Crash loops** back off (5 s between reloads after 3 crashes in a minute).
+- **No error dialogs on stage:** uncaught errors in the main process are logged, never shown.
+
+**Settings screen:** Setup now has **Audio · Output · Clock · MIDI · Keys · Diagnostics**. **Keys** lists every shortcut. Remapping keys isn't included; MIDI covers custom controls.
+
+**Packaging:** `npm run dist` builds a Windows installer with electron-builder.
+
+- NSIS, per-user (no admin rights), choice of folder, Start menu and desktop shortcuts, and a new app icon.
+- It's **unsigned**; the README documents the SmartScreen "Run anyway" step and how to sign.
+- The optional Link module is included when built.
+
+**Soak test:** `npm run soak` (default 60 minutes, `-- --minutes N`).
+
+- Launches the built app with a fresh profile at 1080p and loads all fixture media.
+- Runs the test beat, and fires a random pad every 2–5 s: random clip, layer, mode, quantize, placement and entrance, velocity, plus occasional drops and stop-alls. The effect sets switch every minute.
+- Samples memory (every process, plus the JS heaps) every 30 s and the output frame rate every 2 s.
+- Writes `tmp/soak/soak-<time>.json` and `.md`, with a memory trend (least-squares slope after warm-up) and a PASS / CHECK verdict.
+
+### Acceptance
+
+| Criterion                                              | Result                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Save → quit → reopen restores the full set exactly     | **Yes.** The automated test builds a full show, saves it, quits, starts with an empty profile and opens the file. The reopened set is **identical**, compared field by field (everything except the save time), and the output shows it.                |
+| 60-minute soak: no crashes                             | **None** in either 60-minute run.                                                                                                                                                                                                                       |
+| 60-minute soak: ≥ 58 fps sustained                     | **59.95 fps** average. Lowest 1 s sample 59.9 fps; 0 of 1,735 samples below 58.                                                                                                                                                                         |
+| 60-minute soak: no memory growth trend                 | **No trend once warmed up: −11.6 MB/hour** over the second half. See the memory notes below.                                                                                                                                                            |
+| Installer installs and runs on a clean Windows machine | **Partly verified.** The installer builds (`dist/Veejus Setup 1.0.0.exe`, 112 MB). The packaged app starts, plays a clip and loads the bundled Link module (automated test). The installer itself hasn't been run on a clean machine: see Known issues. |
+
+**Soak run** (`npm run soak`, report in `tmp/soak/soak-2026-10-21T23-14-56.md`):
+
+- 60 minutes at 1920×1080 with the test beat running.
+- 66 clips (fixtures media, keying, perf and stress), including 35 videos against a warm limit of 16, so video players constantly load and unload.
+- 1,030 random triggers, 97 of them drops, with the effect set switching every minute.
+
+**Memory, and how it was checked**
+
+- **What happened:** total memory rose from about 1.2 GB to about 1.65 GB over the first ~25 minutes, then stayed level. The second half of the run trends −11.6 MB/hour, with swings of ±100 MB as caches fill and empty.
+- **Measured per process:**
+  - **Output window:** almost all of the rise.
+  - **Control window:** flat at ~240 MB.
+  - **GPU process:** levels off at ~420 MB after warm-up.
+  - **Both JavaScript heaps:** small and flat (5–30 MB in the output).
+- **Diagnostic runs** (15 minutes each, side by side):
+  - **Preview monitor off:** the same rise. The preview readback isn't the cause.
+  - **12 videos (no player churn):** the output stayed flat at ~300–330 MB.
+  - So the plateau comes from many different videos passing through the 16 warm players, consistent with Chromium's media caches filling to their limits.
+- **A reuse pool for video elements** was tried and made no difference (a second 60-minute run reached the same plateau), so it was reverted.
+- **The soak script now judges the trend over the second half of the run,** after this warm-up.
+
+### Test results
+
+- `npm run typecheck`, `npm run lint` and Prettier: clean.
+- `npm run test:unit`: **212 passing** (9 new):
+  - **Set files:**
+    - a full set survives a round trip
+    - the fingerprint ignores the save time
+    - foreign, newer and damaged files are refused with the right reason
+    - moved clips are remapped in the pads, and still-missing ones are listed
+  - **Collection and favorite** pad sources.
+  - **Picture layout:** fill, letterbox and pillarbox centering, resolution cap without upscaling, portrait.
+  - **Watchdog:** one level per sustained slump, capped at 3, a slow step-by-step recovery, short dips and the in-between zone ignored.
+- `npm run test:e2e`: **112 tests**. New in `sets.spec.ts` (6):
+  - **Exact save → quit → reopen:** mix, effects, clock, MIDI, output, audio, a collection pad and a favorite.
+  - **Autosave restore after a restart.**
+  - **Control-window crash:** the output keeps drawing and keeps its loop; the control reloads and restores the set.
+  - **Relink after moving the clips folder.**
+  - **Letterboxing** to 1:1.
+  - **Degradation:** the warning appears, the render scale drops to 75%, then everything restores.
+- **New** `packaged.spec.ts`: the built app starts, plays a clip, and loads the bundled Link module.
+- **In the full run,** 111 passed. The 1080p perf test dipped to 57 fps right after the 112 MB installer had been built (most likely Windows scanning the new files). Three repeat runs straight after held **60.0 fps with 0 dropped frames**.
+- **Two test fixes:**
+  - The library hover test now moves the mouse away first. A tile that reflows under a stationary cursor gets no mouseenter.
+  - The control-crash test reads the reloaded window through the main process, because Playwright's handle on a crashed page goes stale.
+
+**Two UX fixes found along the way**
+
+- The library's **Undo** bar is now a floating toast, so its disappearing never shifts clips under the cursor.
+- The **reduced-quality warning** is a top-bar pill rather than a banner, so nothing moves when quality changes mid-show.
+
+### Manual test script
+
+1. Build a small show: load clips, set some pads, add Kick Bump, map a MIDI control, pick 4:3.
+   - **Save as…** "Friday night". **Expected:** the name shows in the top bar with no dot. Change something: the dot appears.
+2. Quit and restart. **Expected:** everything is back, including the set name.
+3. **New set**, then **Open…** "Friday night". **Expected:** identical.
+4. Move the clips folder somewhere else (not the set file), then open the set. **Expected:** the **Missing clips** dialog. **Search a folder…** at the new place: the pads work again.
+5. Copy the set file _and_ its clips folder together to another place (or a USB stick), then open it there. **Expected:** no missing clips.
+6. Select a clip, ☆ it, add it to "Air Horns". Point a pad at **Random from collection: Air Horns**. **Expected:** it only plays clips from that collection.
+7. Setup → Output → Picture → **9:16**. **Expected:** a vertical picture with black bars. Back to **Fill**.
+8. Optional: Task Manager → end the "Veejus" renderer process with the highest memory that isn't the GPU process. That's usually the output or the control. **Expected:** the window comes back by itself within a second, and the other keeps running.
+9. Installer: run `dist/Veejus Setup 1.0.0.exe` on a machine without the dev setup. Choose **More info → Run anyway** at SmartScreen, install, then start it from the Start menu.
+
+### Decisions and defaults
+
+- **Opening a set replaces the library** with the set's clips. A set is a whole show; merging libraries could come later.
+- **Autosave lives in the app profile**, not next to the set file, so it never overwrites your saved set. Saving is always explicit.
+- **The audio input is part of the set**, so a set made for the venue's mixer reopens with it. If that device isn't connected, the audio panel says so.
+- **Keyboard shortcuts aren't remappable**, but MIDI mappings are. The Keys tab documents the fixed keys.
+- **No Spout / NDI yet**, for the reasons in `docs/STREAMING_PLAN.md`. OBS Window Capture covers streaming today.
+- **The installer is per-user and unsigned.** Signing needs a certificate, which only you can provide.
+
+### Known issues / limitations
+
+- **The installer hasn't been run on a clean machine.** It's built, and the packaged app passes its automated start-and-play test. But installing it here would put an app with shortcuts and an uninstall entry on your PC, so I didn't run it without asking. Step 9 of the manual test script covers it. It's best done on a second PC or a fresh Windows user account.
+- **The installer is unsigned.** SmartScreen warns the first time ("More info → Run anyway"). Signing needs a code-signing certificate.
+- **The Link module in the installer is GPL code.** It's included because it was built locally. Before giving the installer to anyone else, decide on Link licensing (Phase 7 note), or build without `native/abletonlink.node`.
+- **Restoring after a crash uses the last autosave**, so up to about 1.5 s of the latest changes can be lost.
+- **"Search a folder" matches by file name.** Two different clips with the same name in different folders resolve to the first one found.
+- **Degradation level 3 renders at 75%,** which is visibly softer. It only kicks in after levels 1–2 didn't restore the frame rate.

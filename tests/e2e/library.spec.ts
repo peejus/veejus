@@ -191,6 +191,8 @@ test('removing a clip removes its pad and output state', async () => {
 })
 
 test('hovering a pad shows a live preview', async () => {
+  // Start from elsewhere: a tile that reflowed under a still mouse gets no mouseenter.
+  await h.control.mouse.move(5, 5)
   await pad(h.control, 'half-alpha.gif').hover()
   const img = pad(h.control, 'half-alpha.gif').locator('img')
   await expect(img).toHaveAttribute('src', /^veejus-media:\/\/clip\//)

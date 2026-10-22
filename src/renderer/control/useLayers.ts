@@ -29,6 +29,8 @@ export interface LayersLink {
   setPreviewEnabled(enabled: boolean): void
   /** Subscribe to preview frames without re-rendering. */
   onPreview(listener: (frame: PreviewFrame) => void): () => void
+  /** Replace the mix and master (opening a set). */
+  load(config: LayersConfig, master: MasterSettings): void
 }
 
 const NOTHING = Object.fromEntries(
@@ -105,7 +107,15 @@ export function useLayers(): LayersLink {
     return () => listeners.current.delete(l)
   }, [])
 
+  const load = useCallback((c: LayersConfig, m: MasterSettings) => {
+    setConfig(c)
+    setMasterState(m)
+    bridge.sendToOutput({ type: 'setLayers', config: c })
+    bridge.sendToOutput({ type: 'setMaster', master: m })
+  }, [])
+
   return {
+    load,
     config,
     setLayer,
     setTakeover,

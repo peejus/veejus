@@ -56,7 +56,14 @@ export const QUANTIZE_LABELS: Record<Quantize, string> = {
 export type RetriggerUnit = 'beat' | 'bar'
 
 /** What a pad plays: one clip, or a random clip from a folder (or the whole library). */
-export type PadSource = { kind: 'clip'; clipId: string } | { kind: 'random'; folder: string | null }
+export type PadSource =
+  | { kind: 'clip'; clipId: string }
+  /** A random clip from a folder (null: the whole library). */
+  | { kind: 'random'; folder: string | null }
+  /** A random clip from a collection (a tag, e.g. "Air Horns"). */
+  | { kind: 'collection'; tag: string }
+  /** A random favorite. */
+  | { kind: 'favorites' }
 
 /** A pad as configured in the UI. */
 export interface PadConfig {
@@ -170,12 +177,18 @@ const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 const inRange = (v: unknown, lo: number, hi: number): v is number => isNum(v) && v >= lo && v <= hi
 const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 64
 
+/** Collection (tag) names: short, trimmed, non-empty. */
+export const MAX_TAG_LENGTH = 40
+export const isTag = (v: unknown): v is string =>
+  typeof v === 'string' && v.trim() === v && v.length > 0 && v.length <= MAX_TAG_LENGTH
+
 export function isPadSource(v: unknown): v is PadSource {
   if (!isObj(v)) return false
   if (v.kind === 'clip') return isId(v.clipId)
   if (v.kind === 'random')
     return v.folder === null || (typeof v.folder === 'string' && v.folder.length < 4096)
-  return false
+  if (v.kind === 'collection') return isTag(v.tag)
+  return v.kind === 'favorites'
 }
 
 export function isPadSpec(v: unknown): v is PadSpec {
