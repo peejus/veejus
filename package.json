@@ -20,7 +20,9 @@
     "fixtures:perf": "node scripts/make-fixtures.mjs --perf",
     "build:link": "node scripts/build-link.mjs",
     "soak": "node scripts/soak.mjs",
-    "dist": "electron-vite build && electron-builder --win"
+    "dist": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:mac-zip": "electron-vite build && node scripts/package-mac.mjs"
   },
   "author": "Veejus",
   "license": "UNLICENSED",

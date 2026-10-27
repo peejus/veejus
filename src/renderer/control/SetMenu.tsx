@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { MOD, SHIFT } from './platform'
 import type { SetLink } from './useSet'
 
 /** The set name in the top bar, with New / Open / Save / Save as / Recent. */
@@ -7,7 +8,7 @@ export function SetMenu({ set }: { set: SetLink }) {
   const root = useRef<HTMLDivElement>(null)
   const { refreshRecent, save } = set
 
-  // Ctrl+S saves, Ctrl+Shift+S saves as, Ctrl+O opens.
+  // Ctrl+S (⌘S on macOS) saves, Ctrl+Shift+S saves as, Ctrl+O opens.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return
@@ -68,13 +69,17 @@ export function SetMenu({ set }: { set: SetLink }) {
             New set
           </button>
           <button role="menuitem" onClick={act(() => set.open())}>
-            Open… <kbd>Ctrl+O</kbd>
+            Open… <kbd>{MOD}O</kbd>
           </button>
           <button role="menuitem" onClick={act(() => set.save())}>
-            Save <kbd>Ctrl+S</kbd>
+            Save <kbd>{MOD}S</kbd>
           </button>
           <button role="menuitem" onClick={act(() => set.save(true))}>
-            Save as… <kbd>Ctrl+Shift+S</kbd>
+            Save as…{' '}
+            <kbd>
+              {MOD}
+              {SHIFT}S
+            </kbd>
           </button>
           {set.recent.length > 0 && <div className="set-dropdown-label">Recent sets</div>}
           {set.recent.map((r) => (

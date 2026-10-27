@@ -2,6 +2,7 @@ import type { DisplayInfo, FrameStatsSnapshot, MediaStats } from '@shared/protoc
 import { AudioPanel } from './AudioPanel'
 import { ClockSettings, ClockSourcePicker } from './BeatPanel'
 import { MidiSetup } from './MidiSetup'
+import { FULLSCREEN_KEY } from './platform'
 import { ShortcutList } from './ShortcutSheet'
 import {
   ASPECTS,
@@ -156,7 +157,9 @@ function OutputSetup(p: Props) {
           </button>
           {!link.state.visible && <button onClick={p.onShowOutput}>Show output</button>}
         </div>
-        <p className="hint">In the output window: Esc exits fullscreen, F11 toggles it.</p>
+        <p className="hint">
+          In the output window: Esc exits fullscreen, {FULLSCREEN_KEY} toggles it.
+        </p>
 
         <h3>Displays</h3>
         <ul className="displays" data-testid="display-list">

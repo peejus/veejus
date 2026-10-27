@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { NUDGE_MS } from '@shared/beat'
+import { FULLSCREEN_KEY, isMac } from './platform'
 
 const GROUPS: { title: string; keys?: false; rows: [string, string][] }[] = [
   {
@@ -7,7 +8,7 @@ const GROUPS: { title: string; keys?: false; rows: [string, string][] }[] = [
     rows: [
       ['1–8 · Q–I · A–K · Z–,', 'Fire the pad in that spot (one keyboard row per pad row)'],
       ['Shift + pad key', 'Arm or disarm it for the drop'],
-      ['F1 – F4', 'Switch to bank A – D'],
+      [isMac ? 'fn + F1 – F4' : 'F1 – F4', 'Switch to bank A – D'],
       ['Esc', 'Stop everything'],
     ],
   },
@@ -24,7 +25,7 @@ const GROUPS: { title: string; keys?: false; rows: [string, string][] }[] = [
     rows: [
       ['`', 'Blackout on / off'],
       ['Esc (output window)', 'Leave fullscreen'],
-      ['F11 (output window)', 'Toggle fullscreen'],
+      [`${FULLSCREEN_KEY} (output window)`, 'Toggle fullscreen'],
     ],
   },
   {

@@ -6,6 +6,7 @@ import {
   type AudioSource,
   type OnsetBand,
 } from '@shared/audio'
+import { isMac } from './platform'
 import type { AudioLink } from './useAudio'
 
 const TEST_BPM = 120
@@ -312,7 +313,15 @@ export function AudioPanel({ audio }: { audio: AudioLink }) {
         >
           <option value="off">Off</option>
           <option value="test">Test beat ({TEST_BPM} BPM, silent)</option>
-          <option value="loopback">System audio (what this PC is playing)</option>
+          {isMac ? (
+            // Electron captures system audio on Windows only; on macOS route it through a
+            // virtual input such as BlackHole and pick that device instead.
+            <option value="loopback" disabled>
+              System audio (Windows only: on Mac, use a BlackHole input)
+            </option>
+          ) : (
+            <option value="loopback">System audio (what this PC is playing)</option>
+          )}
           {devices.map((d) => (
             <option key={d.deviceId} value={`device:${d.deviceId}`}>
               {d.label}

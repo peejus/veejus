@@ -8,8 +8,11 @@
 // proprietary license from Ableton). The SDK source is downloaded at build time and never
 // committed. See docs/PROGRESS.md (Phase 7) for the licensing note.
 //
-// Windows needs Visual Studio Build Tools (C++). The published binding.gyp defines the macOS
-// platform unconditionally and asks for C++14, so it is patched before building.
+// Windows needs Visual Studio Build Tools (C++); macOS needs the Xcode command line tools
+// (xcode-select --install). The published binding.gyp defines the macOS platform
+// unconditionally and asks for C++14, so it is patched before building. The module is native
+// code, so build it on the platform you'll run on; on a Mac, `npm run build:link -- --arch=x64`
+// builds for the other CPU.
 
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -46,7 +49,10 @@ gyp = gyp
     '"_WIN32_WINNT=0x0601"\n          ]',
     '"_WIN32_WINNT=0x0601",\n            "NOMINMAX"\n          ],\n          "libraries": [ "ws2_32.lib", "iphlpapi.lib", "winmm.lib" ]',
   )
-if (gyp.includes('"LINK_PLATFORM_MACOSX=1",\n        "ASIO'))
+  .replace('"CLANG_CXX_LANGUAGE_STANDARD": "c++14"', '"CLANG_CXX_LANGUAGE_STANDARD": "c++20"')
+  .replaceAll('"-std=c++14"', '"-std=c++20"')
+  .replaceAll('10.11', '13.0') // macOS deployment target: Electron 44 itself needs 13 or later
+if (gyp.includes('"LINK_PLATFORM_MACOSX=1",\n        "ASIO') || gyp.includes('c++14'))
   throw new Error('binding.gyp patch failed')
 writeFileSync(gypPath, gyp)
 
@@ -56,7 +62,7 @@ sh('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--silent']
 // npm's own node-gyp knows the newest Visual Studio versions; a separately installed one may not.
 const npmDir = dirname(dirname(process.env.npm_execpath ?? ''))
 const bundledGyp = join(npmDir, 'node_modules', 'node-gyp', 'bin', 'node-gyp.js')
-const gypArgs = ['rebuild']
+const gypArgs = ['rebuild', ...process.argv.slice(2).filter((a) => a.startsWith('--arch='))]
 console.log('Building (this takes a minute)…')
 if (existsSync(bundledGyp))
   execFileSync(process.execPath, [bundledGyp, ...gypArgs], { cwd: pkg, stdio: 'inherit' })

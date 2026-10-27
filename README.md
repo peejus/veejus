@@ -9,8 +9,8 @@ The build follows the phased plan in [VEEJUS_AGENT_PROMPT.md](VEEJUS_AGENT_PROMP
 ## Requirements
 
 - Node.js 20.11+ (developed on Node 24)
-- Windows 10/11 (macOS should work but is untested)
-- ffmpeg, only for regenerating test fixtures (`winget install Gyan.FFmpeg`)
+- Windows 10/11, or macOS 13 (Ventura) or later on Apple silicon or Intel
+- ffmpeg, only for regenerating test fixtures (`winget install Gyan.FFmpeg`, or `brew install ffmpeg` on a Mac)
 
 ## Setup
 
@@ -30,27 +30,31 @@ Double-click **`Start-Veejus.bat`** in the project folder:
 
 To start it from the desktop or taskbar, right-click `Start-Veejus.bat` → **Show more options** → **Create shortcut**, then move the shortcut there.
 
+On a Mac, double-click **`Start-Veejus.command`** instead (same behaviour; `./Start-Veejus.command dev` for hot reload). The first time, macOS may refuse to open it: right-click it → **Open**.
+
 ## Commands
 
-| Command                     | What it does                                                                                |
-| --------------------------- | ------------------------------------------------------------------------------------------- |
-| `npm run dev`               | Start the app with hot reload (control window + output window)                              |
-| `npm run build`             | Production build into `out/`                                                                |
-| `npm run preview`           | Run the production build                                                                    |
-| `npm test`                  | Unit tests (Vitest), then build + end-to-end tests (Playwright)                             |
-| `npm run test:unit`         | Unit tests only                                                                             |
-| `npm run test:e2e`          | Build, then end-to-end tests that launch the real app                                       |
-| `npm run typecheck`         | TypeScript checks for main/preload and renderer code                                        |
-| `npm run lint`              | ESLint                                                                                      |
-| `npm run format`            | Prettier                                                                                    |
-| `npm run fixtures`          | Regenerate the small committed test media in `fixtures/media`                               |
-| `npm run fixtures:stress`   | Generate 50 clips in `fixtures/stress` for the stress test                                  |
-| `npm run fixtures:perf`     | Generate 1080p clips in `fixtures/perf` for the 4-layer performance test                    |
-| `npm run fixtures:audio`    | Write synthetic drum patterns + ground truth to `fixtures/audio`                            |
-| `npm run analyze -- <file>` | Run onset detection and beat tracking over an audio file (WAV, or MP3/FLAC/... via ffmpeg)  |
-| `npm run build:link`        | Build the optional Ableton Link module into `native/` (needs Visual Studio C++ Build Tools) |
-| `npm run dist`              | Build the Windows installer into `dist/` (unsigned; see Installing below)                   |
-| `npm run soak`              | The 60-minute soak test (memory, frame rate, crashes); `-- --minutes 5` for a short run     |
+| Command                     | What it does                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------- |
+| `npm run dev`               | Start the app with hot reload (control window + output window)                                |
+| `npm run build`             | Production build into `out/`                                                                  |
+| `npm run preview`           | Run the production build                                                                      |
+| `npm test`                  | Unit tests (Vitest), then build + end-to-end tests (Playwright)                               |
+| `npm run test:unit`         | Unit tests only                                                                               |
+| `npm run test:e2e`          | Build, then end-to-end tests that launch the real app                                         |
+| `npm run typecheck`         | TypeScript checks for main/preload and renderer code                                          |
+| `npm run lint`              | ESLint                                                                                        |
+| `npm run format`            | Prettier                                                                                      |
+| `npm run fixtures`          | Regenerate the small committed test media in `fixtures/media`                                 |
+| `npm run fixtures:stress`   | Generate 50 clips in `fixtures/stress` for the stress test                                    |
+| `npm run fixtures:perf`     | Generate 1080p clips in `fixtures/perf` for the 4-layer performance test                      |
+| `npm run fixtures:audio`    | Write synthetic drum patterns + ground truth to `fixtures/audio`                              |
+| `npm run analyze -- <file>` | Run onset detection and beat tracking over an audio file (WAV, or MP3/FLAC/... via ffmpeg)    |
+| `npm run build:link`        | Build the optional Ableton Link module into `native/` (needs Visual Studio C++ Build Tools)   |
+| `npm run dist`              | Build the Windows installer into `dist/` (unsigned; see Installing below)                     |
+| `npm run dist:mac`          | On a Mac: build a `.dmg` and `.zip` for that Mac into `dist/`                                 |
+| `npm run dist:mac-zip`      | On any OS: build macOS zips for Apple silicon and Intel into `dist/` (see Installing (macOS)) |
+| `npm run soak`              | The 60-minute soak test (memory, frame rate, crashes); `-- --minutes 5` for a short run       |
 
 The stress test is skipped until `npm run fixtures:stress` has been run once.
 
@@ -121,6 +125,26 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 ### Video decoding
 
 Veejus decodes video in software by default, because starting hardware decoders stalls the output for a frame or more each time a clip preloads. To try hardware decoding, start it with the environment variable `VEEJUS_HW_VIDEO_DECODE=1`.
+
+## Installing (macOS)
+
+There are two ways to get a Mac app:
+
+- **Built on Windows (no Mac needed):** `npm run dist:mac-zip` writes `dist/Veejus-<version>-mac-arm64.zip` (Apple silicon: M1 and later) and `dist/Veejus-<version>-mac-x64.zip` (Intel Macs). Not sure which Mac you have? Apple menu → About This Mac: "Chip: Apple M…" means arm64. This build has no Ableton Link module.
+- **Built on a Mac:** `npm run dist:mac` writes a `.dmg` and a `.zip` for that Mac's CPU into `dist/`. Run `npm run build:link` first (needs `xcode-select --install`) to include Ableton Link.
+
+Either way the app isn't signed with an Apple Developer ID, so macOS blocks it at first. For the zip built on Windows, unzip it on the Mac (double-click), drag **Veejus** to Applications, then run this once in Terminal to clear the download quarantine and sign it for this Mac:
+
+```bash
+xattr -cr /Applications/Veejus.app && codesign --force --deep --sign - /Applications/Veejus.app
+```
+
+For the `.dmg` built on a Mac, drag Veejus to Applications and right-click it → **Open** the first time (or run the `xattr -cr` part above).
+
+- **Permissions:** the first time you pick an audio input, macOS asks to let Veejus use the microphone; Ableton Link may ask for local network access. Change these later in System Settings → Privacy & Security.
+- **System audio:** macOS has no built-in way for apps to capture what the Mac is playing, so the **System audio** source is Windows-only. Install a virtual audio device such as [BlackHole](https://existential.audio/blackhole/), send your music to it (Audio MIDI Setup → multi-output device), and pick BlackHole as the audio input.
+- **Keys:** ⌘ replaces Ctrl (⌘S, ⌘O, ⌘⇧S). In the output window **⌃⌘F** toggles fullscreen (F11 shows the desktop on a Mac). On a laptop keyboard the bank keys are **fn + F1–F4**.
+- **Where your data lives:** the autosave and recent-sets list are in `~/Library/Application Support/Veejus`.
 
 ## Installing (Windows)
 

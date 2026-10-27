@@ -6,6 +6,7 @@ import {
   ipcMain,
   screen,
   session,
+  systemPreferences,
   webContents,
   type Display,
   type IpcMainEvent,
@@ -159,14 +160,15 @@ function createOutputWindow(): BrowserWindow {
   win.on('hide', broadcastOutputState)
   win.on('moved', broadcastOutputState)
 
-  // Esc leaves fullscreen, F11 toggles it. Handled here so it works whatever the page does;
-  // the page also forwards these keys as output commands for input that bypasses this hook.
+  // Esc leaves fullscreen, F11 (or ⌃⌘F, the macOS convention) toggles it. Handled here so it
+  // works whatever the page does; the page also forwards these keys as output commands for
+  // input that bypasses this hook.
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return
     if (input.key === 'Escape' && win.isFullScreen()) {
       e.preventDefault()
       win.setFullScreen(false)
-    } else if (input.key === 'F11') {
+    } else if (input.key === 'F11' || (input.meta && input.control && input.code === 'KeyF')) {
       e.preventDefault()
       win.setFullScreen(!win.isFullScreen())
     }
@@ -446,7 +448,7 @@ const OUTPUT_REQUESTS = new Set<MainRequest['type']>([
 
 /**
  * Media permissions: only the output window may capture, and only audio. System-audio
- * loopback (Windows) arrives through getDisplayMedia; main answers with the primary screen
+ * loopback (Windows only; Electron has no macOS loopback) arrives through getDisplayMedia; main answers with the primary screen
  * plus loopback audio, and the output discards the video track.
  */
 function registerMediaPermissions(): void {
@@ -468,7 +470,17 @@ function registerMediaPermissions(): void {
     }
     if (permission === 'media' && isOutput(wc)) {
       const types = 'mediaTypes' in details ? (details.mediaTypes ?? []) : []
-      callback(types.every((t) => t === 'audio'))
+      if (!types.every((t) => t === 'audio')) {
+        callback(false)
+      } else if (process.platform === 'darwin') {
+        // macOS asks the user once for microphone access (Info.plist carries the reason).
+        systemPreferences
+          .askForMediaAccess('microphone')
+          .then(callback)
+          .catch(() => callback(false))
+      } else {
+        callback(true)
+      }
       return
     }
     callback(false)

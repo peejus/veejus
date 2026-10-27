@@ -6,9 +6,14 @@ import { FIXTURES, newProfile, pad } from './helpers'
 // The packaged app (npm run dist): it starts, connects its windows, plays a clip, and finds
 // the bundled Ableton Link module. Skipped until the installer has been built.
 
-const EXE = resolve(__dirname, '../../dist/win-unpacked/Veejus.exe')
+const EXE = resolve(
+  __dirname,
+  process.platform === 'darwin'
+    ? `../../dist/${process.arch === 'arm64' ? 'mac-arm64' : 'mac'}/Veejus.app/Contents/MacOS/Veejus`
+    : '../../dist/win-unpacked/Veejus.exe',
+)
 
-test.skip(!existsSync(EXE), 'packaged app not built (npm run dist)')
+test.skip(!existsSync(EXE), 'packaged app not built (npm run dist, or dist:mac on a Mac)')
 
 test('the packaged app starts and plays', async () => {
   test.setTimeout(60_000)

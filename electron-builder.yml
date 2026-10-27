@@ -1,4 +1,4 @@
-# Windows installer: npm run dist  (after npm run build)
+# Windows installer: npm run dist  ·  macOS app (on a Mac): npm run dist:mac
 appId: com.veejus.app
 productName: Veejus
 copyright: Copyright © 2026
@@ -27,3 +27,21 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Veejus
 # Unsigned for now: Windows SmartScreen will warn on first run (see README).
+mac:
+  # Build on the Mac's own CPU (arm64 for Apple silicon), since the Link module is native code.
+  target:
+    - target: dmg
+    - target: zip
+  icon: build/icon.png
+  category: public.app-category.entertainment
+  minimumSystemVersion: '13.0'
+  # Ad-hoc signed (no Apple Developer ID): first launch needs right-click → Open (see README).
+  identity: '-'
+  hardenedRuntime: false
+  extendInfo:
+    NSMicrophoneUsageDescription: Veejus listens to your audio input to find the beat.
+    NSLocalNetworkUsageDescription: Veejus uses the local network to sync tempo with Ableton Link.
+    NSBonjourServices:
+      - _ableton-link._udp
+dmg:
+  artifactName: Veejus-${version}-${arch}.dmg

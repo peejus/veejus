@@ -460,7 +460,8 @@ bridge.getLibrary().then(onLibrary).catch(console.error)
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') bridge.command({ type: 'exitFullscreen' })
-  else if (e.key === 'F11') {
+  // F11, or ⌃⌘F on macOS (where F11 shows the desktop).
+  else if (e.key === 'F11' || (e.metaKey && e.ctrlKey && e.code === 'KeyF')) {
     e.preventDefault()
     bridge.command({ type: 'toggleFullscreen' })
   }
