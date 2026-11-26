@@ -1789,7 +1789,7 @@ Asked for: effects on still photos, in sync with the beat: image pulse, the imag
 3. Change the tempo: the effects speed up and slow down with it. Press **Beat 1** on a downbeat: the fold shuts on the bar's beats.
 4. Open **Auto-play ▾**, set **Photo effect** to **Mix**, and start auto-play: each photo gets the next effect, and GIFs play without one.
 
-## More photo effects and Mystify lines (completed 2026-11-26, awaiting approval)
+## More photo effects and Mystify lines (completed and approved 2026-11-26)
 
 Asked for: a few more visual effects for still photos, and vector lines like the Windows "Mystify" screensaver, moving in sync with the beat.
 
