@@ -1717,7 +1717,7 @@ This frees cyan to mean only **Overlay B**.
 
 **Approval notes (2026-10-21):** Phase 8 approved. The installer acceptance check (install and run on a clean Windows machine) is with the user: they'll run `dist/Veejus Setup 1.0.0.exe` on a clean machine themselves. Phases 0–8 are complete. Phase 9+ (the backlog) needs approval before starting.
 
-## Quick start and auto-play (completed 2026-11-26, awaiting approval)
+## Quick start and auto-play (completed and approved 2026-11-26)
 
 Asked for: easier start-up, easier loading of images and GIFs, and a one-button mode that plays them on the beat, moving from one to the next.
 
