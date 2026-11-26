@@ -1,5 +1,13 @@
 import { BEATS_PER_BAR } from '@shared/beat'
-import { LAYER_IDS, type LayerId } from '@shared/layers'
+import { DEFAULT_KEY, DEFAULT_PLACEMENT, LAYER_IDS, type LayerId } from '@shared/layers'
+import {
+  AUTO_PAD_ID,
+  DEFAULT_AUTO_PLAY,
+  autoStepBeats,
+  type AutoPlaySettings,
+  type AutoPlayStatus,
+  type AutoSource,
+} from '@shared/autoplay'
 import {
   DEFAULT_TRIGGER_SETTINGS,
   type DropStatus,
@@ -35,6 +43,10 @@ export interface ClipSource {
   candidates(source: PadSource): string[]
   /** Start loading a clip so it is ready when its boundary arrives. */
   prepare(clipId: string): void
+  /** Clip ids auto-play can step through, in library order (default: none). */
+  autoCandidates?(source: AutoSource): string[]
+  /** Natural length of an animated clip or video, ms; null for a still or not loaded yet. */
+  durationMs?(clipId: string): number | null
 }
 
 export type TriggerAction =
@@ -85,6 +97,18 @@ export class TriggerScheduler {
   private dropPos: number | null = null
   private readonly voices = new Map<LayerId, Voice>()
   private readonly lastPick = new Map<string, string>()
+  // Auto-play: steps through clips on the beat, as the voice AUTO_PAD_ID on its layer.
+  private auto: AutoPlaySettings = { ...DEFAULT_AUTO_PLAY }
+  /** When the next clip goes up (beats). */
+  private autoNextPos: number | null = null
+  /** The clip going up next, chosen a step early so it can load. */
+  private autoNext: string | null = null
+  private autoLast: string | null = null
+  /** Shuffle order still to play. */
+  private autoDeck: string[] = []
+  private autoYielding = false
+  /** Set when stopping everything (or the auto-play layer) switched auto-play off. */
+  private autoInterrupted = false
   /** Bumped on every state change, so the UI can be told. */
   version = 0
 
@@ -220,12 +244,17 @@ export class TriggerScheduler {
     this.pending.clear()
     this.armed.clear()
     this.dropPos = null
+    this.autoOff()
     this.changed()
     return actions
   }
 
   /** Stop the pad on one layer now. */
   stopLayer(layer: LayerId): TriggerAction[] {
+    if (layer === this.auto.layer && this.auto.enabled) {
+      this.autoOff()
+      this.changed()
+    }
     const v = this.voices.get(layer)
     if (!v) return []
     this.voices.delete(layer)
@@ -246,6 +275,132 @@ export class TriggerScheduler {
   /** Something outside the scheduler (a library preview) took over a layer. */
   onLayerTakenOver(layer: LayerId): void {
     if (this.voices.delete(layer)) this.changed()
+  }
+
+  // ---- auto-play ---------------------------------------------------------------
+
+  get autoPlay(): Readonly<AutoPlaySettings> {
+    return this.auto
+  }
+
+  /** Change auto-play. Returns stop actions when it was switched off or moved layers. */
+  setAutoPlay(settings: AutoPlaySettings, nowMs: number, clock: ClockView): TriggerAction[] {
+    const was = this.auto
+    this.auto = { ...settings, source: { ...settings.source } }
+    const actions: TriggerAction[] = []
+    const stopOn = (layer: LayerId) => {
+      if (this.voices.get(layer)?.padId !== AUTO_PAD_ID) return
+      this.voices.delete(layer)
+      actions.push({ type: 'stop', layer, padId: AUTO_PAD_ID })
+    }
+    if (!settings.enabled) {
+      stopOn(was.layer)
+      this.autoNextPos = null
+      this.autoNext = null
+      this.autoYielding = false
+    } else {
+      if (was.layer !== settings.layer) stopOn(was.layer)
+      const sourceChanged = JSON.stringify(was.source) !== JSON.stringify(settings.source)
+      if (!was.enabled || sourceChanged || was.order !== settings.order) {
+        this.autoDeck = []
+        this.autoNext = null
+      }
+      // Switching on (or moving layers) shows the first clip on the next beat.
+      if (!was.enabled || was.layer !== settings.layer || this.autoNextPos === null)
+        this.autoNextPos = this.firePosition(clock.position(nowMs), 'beat', clock)
+      this.autoNext ??= this.autoPick()
+    }
+    this.changed()
+    return actions
+  }
+
+  /** True once after stopAll / stopLayer switched auto-play off (so the UI can follow). */
+  takeAutoInterrupted(): boolean {
+    const was = this.autoInterrupted
+    this.autoInterrupted = false
+    return was
+  }
+
+  private autoOff(): void {
+    if (!this.auto.enabled) return
+    this.auto = { ...this.auto, enabled: false }
+    this.autoNextPos = null
+    this.autoNext = null
+    this.autoYielding = false
+    this.autoInterrupted = true
+  }
+
+  /** The clip after `after` (the current or upcoming one), per the order. Starts it loading. */
+  private autoPick(after: string | null = this.autoLast): string | null {
+    const list = this.clips.autoCandidates?.(this.auto.source) ?? []
+    if (list.length === 0) return null
+    let id: string
+    if (this.auto.order === 'inOrder') {
+      const i = after !== null ? list.indexOf(after) : -1
+      id = list[(i + 1) % list.length]!
+    } else {
+      const have = new Set(list)
+      this.autoDeck = this.autoDeck.filter((c) => have.has(c))
+      if (this.autoDeck.length === 0) {
+        const deck = [...list]
+        for (let i = deck.length - 1; i > 0; i--) {
+          const j = Math.floor(this.rand() * (i + 1))
+          ;[deck[i], deck[j]] = [deck[j]!, deck[i]!]
+        }
+        // A new round never starts with the clip that just played.
+        if (deck.length > 1 && deck[0] === after) deck.push(deck.shift()!)
+        this.autoDeck = deck
+      }
+      id = this.autoDeck.shift()!
+    }
+    this.clips.prepare(id)
+    return id
+  }
+
+  /** Beats the clip stays up for. */
+  private autoBeats(clipId: string, clock: ClockView): number {
+    const step = this.auto.step
+    if (step !== 'auto') return step
+    return autoStepBeats(this.clips.durationMs?.(clipId) ?? null, clock.beatsPerMs * 60000)
+  }
+
+  private autoSpec(clipId: string, beats: number): PadSpec {
+    // With the 'auto' step an animated clip plays through exactly once per step.
+    const animated = (this.clips.durationMs?.(clipId) ?? null) !== null
+    return {
+      source: { kind: 'clip', clipId },
+      mode: 'toggle',
+      quantize: 'beat',
+      lengthBeats: beats,
+      retriggerEvery: 'beat',
+      fadeInBeats: 0,
+      fadeOutBeats: 0,
+      syncBeats: this.auto.step === 'auto' && animated ? beats : null,
+      layer: this.auto.layer,
+      placement: { ...DEFAULT_PLACEMENT, fit: this.auto.fit },
+      key: DEFAULT_KEY,
+    }
+  }
+
+  /**
+   * When the clip that went up at `at` gives way: `beats` later, except that changes of a bar
+   * or more land on bar lines (the first one may come sooner, to get onto the grid).
+   */
+  private autoAfter(at: number, beats: number, clock: ClockView): number {
+    const unit: GridUnit = beats >= BEATS_PER_BAR ? 'bar' : 'beat'
+    const grid = unit === 'bar' ? BEATS_PER_BAR : 1
+    return clock.boundaryAfter(at + beats - grid + 1e-6, unit)
+  }
+
+  private autoStatus(pos: number): AutoPlayStatus {
+    const v = this.voices.get(this.auto.layer)
+    return {
+      enabled: this.auto.enabled,
+      clipId: v?.padId === AUTO_PAD_ID ? v.clipId : null,
+      nextClipId: this.auto.enabled ? this.autoNext : null,
+      beatsToNext: this.autoNextPos !== null ? Math.max(0, this.autoNextPos - pos) : null,
+      yielding: this.autoYielding,
+    }
   }
 
   private beginStop(v: Voice, pos: number): void {
@@ -328,6 +483,43 @@ export class TriggerScheduler {
         v.nextRetriggerPos = clock.boundaryAfter(v.nextRetriggerPos + 1e-6, v.spec.retriggerEvery)
       }
     }
+    // Auto-play last, so a pad that ended on this frame hands its layer straight back.
+    if (this.auto.enabled && this.autoNextPos !== null && due(this.autoNextPos)) {
+      const at = this.autoNextPos
+      const layer = this.auto.layer
+      const occupant = this.voices.get(layer)
+      const padQueued = [...this.pending.values()].some(
+        (p) => p.kind === 'start' && p.spec.layer === layer,
+      )
+      const nextBeat = () => clock.boundaryAfter(Math.max(at, pos) + 1e-6, 'beat')
+      if ((occupant && occupant.padId !== AUTO_PAD_ID) || padQueued) {
+        // A pad has the layer: hold, and look again on the next beat.
+        this.autoYielding = true
+        this.autoNextPos = nextBeat()
+      } else {
+        this.autoYielding = false
+        const list = this.clips.autoCandidates?.(this.auto.source) ?? []
+        const clipId =
+          this.autoNext !== null && list.includes(this.autoNext) ? this.autoNext : this.autoPick()
+        if (clipId) {
+          const beats = this.autoBeats(clipId, clock)
+          // A clock that jumped ahead (or a long frame) shouldn't leave the grid behind.
+          const startPos = pos - at > 1 ? clock.boundaryAtOrBefore(pos, 'beat') : at
+          // The same still again (a one-clip source) just stays up; anything else restarts.
+          const still = (this.clips.durationMs?.(clipId) ?? null) === null
+          if (!(still && occupant?.padId === AUTO_PAD_ID && occupant.clipId === clipId))
+            start(AUTO_PAD_ID, this.autoSpec(clipId, beats), clipId, startPos)
+          this.autoLast = clipId
+          this.autoNextPos = this.autoAfter(startPos, beats, clock)
+          this.autoNext = this.autoPick(clipId)
+        } else {
+          // Nothing to show yet (no clips, or they failed): look again on the next beat.
+          this.autoNext = null
+          this.autoNextPos = nextBeat()
+        }
+      }
+      this.changed()
+    }
     return actions
   }
 
@@ -371,6 +563,13 @@ export class TriggerScheduler {
         barsRemaining: Math.ceil(beatsRemaining / BEATS_PER_BAR - 1e-9),
       }
     }
-    return { pads, drop, settings: { ...this.settings } }
+    // The auto-play voice isn't a pad.
+    delete pads[AUTO_PAD_ID]
+    return {
+      pads,
+      drop,
+      settings: { ...this.settings },
+      auto: this.autoStatus(clock.position(nowMs)),
+    }
   }
 }

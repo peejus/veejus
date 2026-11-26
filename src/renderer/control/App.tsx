@@ -30,10 +30,17 @@ import { LEVEL_LABELS } from '@core/watchdog'
 import { EFFECT_DEFS } from '@shared/fx'
 import { padId } from '@shared/pads'
 import { useOutputLink } from './useOutputLink'
+import { autoClips, useAutoPlay } from './useAutoPlay'
+import { AutoPlayButton, AutoPlayPanel, QuickStart, importSummary } from './AutoPlay'
+import type { ImportResult } from '@shared/protocol'
 
 /** What the context panel (right column, under the beat strip) is showing. */
 type Context =
-  { kind: 'none' } | { kind: 'pad' } | { kind: 'fx'; scope: FxScope } | { kind: 'clip' }
+  | { kind: 'none' }
+  | { kind: 'pad' }
+  | { kind: 'fx'; scope: FxScope }
+  | { kind: 'clip' }
+  | { kind: 'auto' }
 
 export function App() {
   const link = useOutputLink()
@@ -47,6 +54,7 @@ export function App() {
   usePadShortcuts(pads)
   const layers = useLayers()
   const fx = useFx()
+  const auto = useAutoPlay()
   useBlackoutShortcut(layers)
   const { setBackground, send } = link
   const [color, setColor] = useState('#000000')
@@ -63,6 +71,7 @@ export function App() {
   const [setupTab, setSetupTab] = useState<SetupTab>('audio')
   const [context, setContext] = useState<Context>({ kind: 'none' })
   const [selectedClip, setSelectedClip] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const refreshDisplays = useCallback(() => {
     request({ type: 'listDisplays' }, 'displays')
@@ -148,6 +157,68 @@ export function App() {
   const setFullscreen = (fullscreen: boolean) =>
     run(request({ type: 'setOutputFullscreen', fullscreen }, 'outputState'))
 
+  // ---- Auto-play and quick start -------------------------------------------------
+  const showOutputIfHidden = () => {
+    if (link.connected && !link.state.visible) run(request({ type: 'showOutput' }, 'outputState'))
+  }
+  /** Import, then start auto-play on what was added. */
+  const importAndPlay = (p: Promise<{ result: ImportResult }>) => {
+    setError(null)
+    p.then(({ result }) => {
+      if (result.added === 0 && result.skipped === 0) return // picker canceled
+      setNotice(importSummary(result))
+      if (result.added === 0) return
+      // A collection or favorites wouldn't include what was just added.
+      const narrow =
+        auto.settings.source.kind === 'collection' || auto.settings.source.kind === 'favorites'
+      auto.set({ enabled: true, ...(narrow ? { source: { kind: 'images' } } : {}) })
+      showOutputIfHidden()
+    }).catch((e: Error) => setError(e.message))
+  }
+  const importFor = (mode: 'files' | 'folder') =>
+    importAndPlay(request({ type: 'pickAndImport', mode }, 'imported'))
+  const importPathsFor = (paths: string[]) =>
+    importAndPlay(request({ type: 'importPaths', paths }, 'imported'))
+
+  const toggleAuto = () => {
+    if (auto.settings.enabled) return auto.setEnabled(false)
+    if (autoClips(library.clips, auto.settings.source).length > 0) {
+      auto.setEnabled(true)
+      showOutputIfHidden()
+    } else if (library.clips.length === 0) {
+      importFor('files') // nothing loaded yet: pick some, then go
+    } else {
+      // Clips, but none the chosen source covers: show the settings to pick another.
+      auto.setEnabled(true)
+      showContext({ kind: 'auto' })
+    }
+  }
+  const latestToggle = useRef(toggleAuto)
+  useEffect(() => {
+    latestToggle.current = toggleAuto
+  })
+  // P toggles auto-play (not while typing in a field).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyP' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
+      const t = e.target
+      if (
+        t instanceof HTMLElement &&
+        (t.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(t.tagName))
+      )
+        return
+      e.preventDefault()
+      latestToggle.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  useEffect(() => {
+    if (!notice) return
+    const t = setTimeout(() => setNotice(null), 4000)
+    return () => clearTimeout(t)
+  }, [notice])
+
   // ---- MIDI -------------------------------------------------------------------
   const midiActions: MidiActions = {
     press: (index, velocity) => pads.press({ bank: pads.bank, index }, velocity),
@@ -218,6 +289,7 @@ export function App() {
       libraryPlay: layerSettings,
       audio: { source: audio.status.source, settings: audio.settings },
       output: outputOptions,
+      autoPlay: auto.settings,
     },
     {
       pads: pads.load,
@@ -232,6 +304,7 @@ export function App() {
         audio.setSource(source)
       },
       output: setOutputOptions,
+      autoPlay: (s) => auto.load(s ?? { ...auto.settings, enabled: false }),
     },
   )
   useEffect(() => {
@@ -284,6 +357,15 @@ export function App() {
       <header className="topbar">
         <h1>Veejus</h1>
         <SetMenu set={set} />
+        <AutoPlayButton
+          auto={auto}
+          status={pads.runtime?.auto ?? null}
+          onToggle={toggleAuto}
+          settingsOpen={context.kind === 'auto'}
+          onSettings={() =>
+            showContext(context.kind === 'auto' ? { kind: 'none' } : { kind: 'auto' })
+          }
+        />
         <button
           className={`pill ${outputPill.state}`}
           data-testid="output-status"
@@ -368,6 +450,9 @@ export function App() {
 
       <div className="workspace">
         <main className="main-area">
+          {library.clips.length === 0 && (
+            <QuickStart onImport={importFor} onImportPaths={importPathsFor} />
+          )}
           <FirstRun
             steps={[
               {
@@ -434,6 +519,16 @@ export function App() {
               <PadEditor pads={pads} clips={library.clips} />
             ) : context.kind === 'fx' ? (
               <FxPanel fx={fx} scope={context.scope} />
+            ) : context.kind === 'auto' ? (
+              <AutoPlayPanel
+                auto={auto}
+                status={pads.runtime?.auto ?? null}
+                clips={library.clips}
+                bpm={beat.state?.bpm ?? null}
+                audioOn={audio.status.state === 'running'}
+                onToggle={toggleAuto}
+                onImport={importFor}
+              />
             ) : context.kind === 'clip' && clip ? (
               <ClipInspector
                 clip={clip}
@@ -485,6 +580,11 @@ export function App() {
       {error && (
         <div className="error-banner" role="alert">
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="toast" role="status" data-testid="app-notice">
+          {notice}
         </div>
       )}
     </div>

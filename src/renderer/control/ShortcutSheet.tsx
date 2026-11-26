@@ -24,6 +24,7 @@ const GROUPS: { title: string; keys?: false; rows: [string, string][] }[] = [
     title: 'Show',
     rows: [
       ['`', 'Blackout on / off'],
+      ['P', 'Auto-play on / off (steps through your images and GIFs on the beat)'],
       ['Esc (output window)', 'Leave fullscreen'],
       [`${FULLSCREEN_KEY} (output window)`, 'Toggle fullscreen'],
     ],

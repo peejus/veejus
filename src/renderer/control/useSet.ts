@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEFAULT_BEAT_SETTINGS, type BeatCommand, type BeatSettings } from '@shared/beat'
 import type { AnalysisSettings, AudioSource } from '@shared/audio'
 import type { FxConfig } from '@shared/fx'
+import type { AutoPlaySettings } from '@shared/autoplay'
 import type { LayersConfig, MasterSettings } from '@shared/layers'
 import type { MidiSettings } from '@shared/midi'
 import type { OutputOptions } from '@shared/output'
@@ -33,6 +34,7 @@ export interface SetSources {
   libraryPlay: LayerSettings
   audio: { source: AudioSource | null; settings: AnalysisSettings }
   output: OutputOptions
+  autoPlay: AutoPlaySettings
 }
 
 export interface SetApply {
@@ -45,6 +47,8 @@ export interface SetApply {
   libraryPlay(s: LayerSettings): void
   audio(source: AudioSource | null, settings: AnalysisSettings): void
   output(o: OutputOptions): void
+  /** Sets saved before auto-play existed have none: it is switched off. */
+  autoPlay(s: AutoPlaySettings | null): void
 }
 
 export interface SetLink {
@@ -92,6 +96,7 @@ export function buildSet(src: SetSources): VeejusSet {
     libraryPlay: src.libraryPlay,
     audio: src.audio,
     output: src.output,
+    autoPlay: src.autoPlay,
   }
 }
 
@@ -159,6 +164,7 @@ export function useSet(src: SetSources, apply: SetApply): SetLink {
     a.libraryPlay(s.libraryPlay)
     a.audio(s.audio.source, s.audio.settings)
     a.output(s.output)
+    a.autoPlay(s.autoPlay ?? null)
     setPath(r.path)
     setMissing(r.missing)
   }, [])
@@ -254,6 +260,7 @@ export function useSet(src: SetSources, apply: SetApply): SetLink {
     const empty = buildSet({ ...latest.current.src, clips: [] })
     const banks = empty.pads.banks.map((b) => b.map((p) => ({ ...p, source: null })))
     a.pads({ banks, settings: empty.pads.settings, bank: 0 })
+    a.autoPlay(null)
     setPath(null)
     setSaved(null)
     setMissing([])

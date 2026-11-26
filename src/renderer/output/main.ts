@@ -22,6 +22,7 @@ import {
   type MasterSettings,
 } from '@shared/layers'
 import type { PadSource } from '@shared/pads'
+import type { AutoSource } from '@shared/autoplay'
 import { FX_SCOPES, emptyFxConfig, type FxConfig, type FxScope } from '@shared/fx'
 import { resolveChain, type ModContext, type ResolvedChain } from '@core/modulation/modulation'
 import { HOP_SIZE } from '@core/audio/analyzer'
@@ -244,7 +245,33 @@ const scheduler = new TriggerScheduler({
   prepare: (clipId) => {
     if (media.state(clipId) !== 'ready') media.load(clipId).catch(() => {})
   },
+  autoCandidates: (source: AutoSource) => {
+    const inSource = (c: ClipInfo) => {
+      switch (source.kind) {
+        case 'images':
+          return c.kind === 'image'
+        case 'all':
+          return true
+        case 'collection':
+          return c.tags.includes(source.tag)
+        case 'favorites':
+          return c.favorite
+      }
+    }
+    return libraryClips.filter((c) => media.state(c.id) !== 'error' && inSource(c)).map((c) => c.id)
+  },
+  durationMs: (clipId) => {
+    const c = media.getReady(clipId)
+    if (!c) return null
+    if (c.kind === 'video') return c.durationMs > 0 ? c.durationMs : null
+    return c.frameCount > 1 ? c.timeline.totalMs : null
+  },
 })
+
+/** Tell the control when stopping switched auto-play off, so its button follows. */
+function reportAutoInterrupted(): void {
+  if (scheduler.takeAutoInterrupted()) bridge.sendToControl({ type: 'autoPlayStopped' })
+}
 
 /** Pad actions as they fired, newest last, for tests and diagnostics. */
 const recentActions: {
@@ -363,11 +390,13 @@ bridge.onControlMessage((msg) => {
     case 'stopClip':
       applyTriggerActions(scheduler.stopLayer(PREVIEW_LAYER), performance.now())
       layers[PREVIEW_LAYER].stop()
+      reportAutoInterrupted()
       sendTriggerState()
       break
     case 'stopLayer':
       applyTriggerActions(scheduler.stopLayer(msg.layer), performance.now())
       layers[msg.layer].stop()
+      reportAutoInterrupted()
       sendTriggerState()
       break
     case 'padPress':
@@ -389,6 +418,14 @@ bridge.onControlMessage((msg) => {
     case 'stopAll':
       applyTriggerActions(scheduler.stopAll(), performance.now())
       for (const id of LAYER_IDS) layers[id].stop()
+      reportAutoInterrupted()
+      sendTriggerState()
+      break
+    case 'setAutoPlay':
+      applyTriggerActions(
+        scheduler.setAutoPlay(msg.settings, performance.now(), beat.clock),
+        performance.now(),
+      )
       sendTriggerState()
       break
     case 'setTriggerSettings':
@@ -688,6 +725,7 @@ function frame(now: number): void {
       beat: beat.state(now),
       trigger: {
         state: scheduler.state(now, beat.clock),
+        autoPlay: scheduler.autoPlay,
         recentActions: [...recentActions],
         beatsPerMs: beat.clock.beatsPerMs,
         owner: cur?.owner ?? null,

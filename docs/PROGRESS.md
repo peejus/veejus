@@ -1716,3 +1716,43 @@ This frees cyan to mean only **Overlay B**.
 - **Degradation level 3 renders at 75%,** which is visibly softer. It only kicks in after levels 1–2 didn't restore the frame rate.
 
 **Approval notes (2026-10-21):** Phase 8 approved. The installer acceptance check (install and run on a clean Windows machine) is with the user: they'll run `dist/Veejus Setup 1.0.0.exe` on a clean machine themselves. Phases 0–8 are complete. Phase 9+ (the backlog) needs approval before starting.
+
+## Quick start and auto-play (completed 2026-11-26, awaiting approval)
+
+Asked for: easier start-up, easier loading of images and GIFs, and a one-button mode that plays them on the beat, moving from one to the next.
+
+### What was built
+
+- **▶ Auto-play** (top bar, or the **P** key): one button that steps through the library on the beat. The output schedules it like a pad, on the beat clock, so it follows tap tempo, audio detection, MIDI clock and Link alike.
+  - **Plays:** images & GIFs (default), everything (videos too), favorites, or a collection.
+  - **Change:** **Auto** (default) holds a still for one bar and plays each GIF (or video) through once, stretched slightly so it lasts 1, 2, 4, 8 or 16 beats (nearest on a log scale); or a fixed step of 1, 2, 4, 8 or 16 beats, with GIFs at their normal speed.
+  - Changes of a bar or more land on bar lines; the first change may come sooner to get onto the grid.
+  - **Order:** in library order, or shuffled (every clip once per round, never the same twice in a row).
+  - **Picture:** fill (crop, default), whole picture or stretch; **Layer:** Background by default.
+  - The next clip is chosen and loaded a step ahead, so it is ready when its beat comes.
+  - A pad fired on the auto-play layer takes over; auto-play waits and comes back on the beat the pad ends. **Esc** (stop everything), the layer's ■ and the library's Stop switch it off, and the button follows.
+  - The button counts down the beats to the next change. **▾** opens the settings in the context panel, with **Now** and **Next** (with beats to go).
+  - Settings are saved in the set (an optional `autoPlay` field, so older sets still open) and remembered between runs. Switching it on or off isn't an unsaved change. The restored session resumes auto-play if it was on.
+- **Quick start:** while the library is empty, a **Start a show in one click** card offers **Choose images & GIFs…** and **Choose a folder…**, and takes dropped files. Importing from it (or pressing Auto-play with nothing loaded) adds the files, starts auto-play and shows the output window if it was hidden. A short notice says how many clips were added.
+
+### Files
+
+- `src/shared/autoplay.ts`: settings, status, step-length rule (`autoStepBeats`), guards.
+- `src/core/trigger/scheduler.ts`: the auto-play voice (`setAutoPlay`, stepping in `update`, yielding to pads, switching off on stop).
+- `src/renderer/output/main.ts`: which clips a source covers, clip lengths, `setAutoPlay` / `autoPlayStopped` messages.
+- `src/renderer/control/useAutoPlay.ts`, `AutoPlay.tsx` (button, panel, quick-start card), `App.tsx`, `useSet.ts`, `ShortcutSheet.tsx`, `control.css`.
+
+### Tests
+
+- Unit (`tests/unit/autoplay.test.ts`, 10 tests): step lengths, in-order timing on the beat and bar grid, GIF stretching only with the Auto step, loading a step ahead, shuffle rounds, yielding to a pad and resuming on the beat it ends, stop all, waiting for clips, changing layer, set validation and the fingerprint.
+- End-to-end (`tests/e2e/autoplay.spec.ts`, 4 tests): the quick-start card, one button stepping through only images and GIFs with every change on a beat (within a frame), the panel's Now/Next and a step change to every beat, saving in the set, and P and Esc.
+
+### Manual test script
+
+1. Start with an empty library (Set menu → New set). The **Start a show in one click** card shows above the pads.
+2. Press **Choose images & GIFs…** and pick a few images and GIFs. They appear in the library, the output window shows them one after another on the beat, and the Auto-play button turns green with a beat countdown.
+3. Tap **Space** along with some music, or type a BPM. The changes follow the new tempo.
+4. Press **▾**: the panel shows Now and Next. Try **Every beat**, then **Shuffle**.
+5. Fire a pad that plays on the Background layer. It takes over, and auto-play comes back on the beat after it ends.
+6. Press **P** to stop and start it, then **Esc**: it stops and the button goes grey.
+7. Quit and start Veejus again: the library and auto-play settings come back.

@@ -60,6 +60,12 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 
 ## Using it
 
+- **Quick start (auto-play):** the fastest way to get visuals on the beat.
+  - **Empty library:** a **Start a show in one click** card offers **Choose images & GIFs…** and **Choose a folder…** (or drop files on it). Once they're in, auto-play starts and the output window opens.
+  - **▶ Auto-play** in the top bar (or **P**) turns it on and off. It steps through your images and GIFs on the beat, one after another, with no pads needed. A small number on the button counts the beats to the next change.
+  - **▾** next to it opens the settings: what it plays (images & GIFs, everything, favorites or a collection), how often it changes (**Auto**, or every beat up to every 4 bars), in order or shuffled, how the picture fills the screen, and which layer it uses. **Auto** holds stills for a bar and lets each GIF play through once, stretched slightly so the change lands on the beat (1, 2, 4, 8 or 16 beats). Changes of a bar or longer land on bar lines.
+  - **Pads still work on top:** a pad fired on the same layer takes over until it ends, then auto-play carries on. **Esc** (stop everything) switches auto-play off too.
+  - **Tempo:** auto-play follows the clock: tap **Space** on the beat, type a BPM, or turn on audio so it follows the music.
 - **Sets:** the set name in the top bar opens **New / Open… / Save / Save as… / Recent sets** (Ctrl+O, Ctrl+S, Ctrl+Shift+S). A dot means unsaved changes.
   - **What a set holds:** everything: the library (with collections and favorites), pads, mix, effects, clock settings, MIDI mappings, audio input, background and output options.
   - **Moving media:** clips are found next to the set file first, so you can move a folder holding the set and its clips. If clips are missing, Veejus offers to search a folder for them by name.

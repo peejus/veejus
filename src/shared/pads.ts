@@ -1,5 +1,6 @@
 /** Pads, triggering and drop types shared by the control (UI), output (scheduler) and tests. */
 
+import { isAutoPlayStatus, type AutoPlayStatus } from './autoplay'
 import {
   DEFAULT_KEY,
   DEFAULT_PLACEMENT,
@@ -165,6 +166,8 @@ export interface TriggerState {
   pads: Record<string, PadRuntime>
   drop: DropStatus | null
   settings: TriggerSettings
+  /** What auto-play is doing. */
+  auto: AutoPlayStatus
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +225,7 @@ const RUN_STATES: readonly PadRunState[] = ['idle', 'queued', 'armed', 'playing'
 
 export function isTriggerState(v: unknown): v is TriggerState {
   if (!isObj(v) || !isObj(v.pads) || !isTriggerSettings(v.settings)) return false
+  if (!isAutoPlayStatus(v.auto)) return false
   for (const p of Object.values(v.pads)) {
     if (!isObj(p) || !RUN_STATES.includes(p.state as PadRunState)) return false
     if (!(p.clipId === null || typeof p.clipId === 'string')) return false

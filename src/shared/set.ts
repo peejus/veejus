@@ -6,6 +6,7 @@
 
 import { isAnalysisSettings, isAudioSource, type AnalysisSettings, type AudioSource } from './audio'
 import { isBeatSettings, type BeatSettings } from './beat'
+import { isAutoPlaySettings, type AutoPlaySettings } from './autoplay'
 import { isFxConfig, type FxConfig } from './fx'
 import { isLayersConfig, isMasterSettings, type LayersConfig, type MasterSettings } from './layers'
 import { isMidiSettings, type MidiSettings } from './midi'
@@ -59,10 +60,18 @@ export interface VeejusSet {
   libraryPlay: LayerSettings
   audio: { source: AudioSource | null; settings: AnalysisSettings }
   output: OutputOptions
+  /** Auto-play settings (added after version 1 shipped, so optional). */
+  autoPlay?: AutoPlaySettings
 }
 
 /** The parts that describe the show, for comparing sets ("unsaved changes?"). */
-export const setFingerprint = (s: VeejusSet) => JSON.stringify({ ...s, savedAt: '' })
+/** Switching auto-play on or off isn't an unsaved change; its settings are. */
+export const setFingerprint = (s: VeejusSet) =>
+  JSON.stringify({
+    ...s,
+    savedAt: '',
+    autoPlay: s.autoPlay ? { ...s.autoPlay, enabled: false } : undefined,
+  })
 
 // ---- Moving media -------------------------------------------------------------------
 
@@ -162,5 +171,6 @@ export function checkSet(v: unknown): { ok: true; set: VeejusSet } | { ok: false
   )
     return fail('audio settings')
   if (!isOutputOptions(v.output)) return fail('output options')
+  if (v.autoPlay !== undefined && !isAutoPlaySettings(v.autoPlay)) return fail('auto-play settings')
   return { ok: true, set: v as unknown as VeejusSet }
 }

@@ -8,6 +8,7 @@
 import type { ClipKind } from './mediaTypes'
 import { FX_SCOPES, isFxConfig, type FxConfig, type FxScope } from './fx'
 import { isTag } from './pads'
+import { isAutoPlaySettings, type AutoPlaySettings } from './autoplay'
 import { isOutputOptions, type OutputOptions } from './output'
 import { checkSet, type SetClip, type VeejusSet } from './set'
 import {
@@ -139,6 +140,8 @@ export type ControlToOutput =
   | { type: 'stopLayer'; layer: LayerId }
   /** Effects and modulators for every layer and the master. */
   | { type: 'setFx'; config: FxConfig }
+  /** Step through the library on the beat (or stop doing so). */
+  | { type: 'setAutoPlay'; settings: AutoPlaySettings }
 
 export interface FrameStatsSnapshot {
   fps: number
@@ -199,6 +202,8 @@ export type OutputToControl =
   | { type: 'fxLive'; values: FxLiveValues }
   /** Output health, sent when it changes (and with each stats update). */
   | { type: 'health'; health: OutputHealth }
+  /** Stop all (or stopping its layer) switched auto-play off. */
+  | { type: 'autoPlayStopped' }
 
 export interface OutputHealth {
   /** Graceful-degradation level, 0 (normal) .. 3 (see core/watchdog). */
@@ -393,6 +398,8 @@ export function isControlToOutput(v: unknown): v is ControlToOutput {
     case 'stopAll':
     case 'dropNow':
       return true
+    case 'setAutoPlay':
+      return isAutoPlaySettings(v.settings)
     case 'setOutputOptions':
       return isOutputOptions(v.options)
     case 'setTriggerSettings':
@@ -459,6 +466,8 @@ export function isOutputToControl(v: unknown): v is OutputToControl {
       return isBeatEvent(v.event)
     case 'triggerState':
       return isTriggerState(v.state)
+    case 'autoPlayStopped':
+      return true
     case 'previewFrame':
       return (
         isFiniteNum(v.width) &&
