@@ -1757,7 +1757,7 @@ Asked for: easier start-up, easier loading of images and GIFs, and a one-button 
 6. Press **P** to stop and start it, then **Esc**: it stops and the button goes grey.
 7. Quit and start Veejus again: the library and auto-play settings come back.
 
-## Beat-locked photo effects (completed 2026-11-26, awaiting approval)
+## Beat-locked photo effects (completed and approved 2026-11-26)
 
 Asked for: effects on still photos, in sync with the beat: image pulse, the image folding onto itself, the image bouncing up and down, and a pixel spin that bounces across the image.
 
