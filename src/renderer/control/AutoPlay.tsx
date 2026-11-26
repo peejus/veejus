@@ -213,7 +213,7 @@ export function AutoPlayPanel(p: {
       </label>
       <p className="hint">
         Moves still photos in time with the beat. GIFs and videos play as they are. For more
-        control, add Pulse, Fold, Bounce or Pixel spin from a layer’s FX.
+        control, add these effects from a layer’s FX.
       </p>
       <label className="field">
         <span className="label">Layer</span>

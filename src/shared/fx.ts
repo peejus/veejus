@@ -19,6 +19,10 @@ export const EFFECT_TYPES = [
   'fold',
   'bounce',
   'pixelSpin',
+  'wave',
+  'slice',
+  'twirl',
+  'mystify',
 ] as const
 export type EffectType = (typeof EFFECT_TYPES)[number]
 
@@ -142,6 +146,44 @@ export const EFFECT_DEFS: Record<EffectType, { label: string; params: ParamSpec[
       p('width', 'Wave width', 0.05, 1, 0.01, 0.3),
     ],
   },
+  wave: {
+    label: 'Wave',
+    params: [
+      p('amount', 'Ripple', 0, 0.1, 0.001, 0.03),
+      p('beats', 'Beats per wave', 0.25, 16, 0.25, 1),
+      p('rings', 'Rings', 1, 20, 1, 6),
+      p('snap', 'Snap', 1, 8, 0.5, 2),
+    ],
+  },
+  slice: {
+    label: 'Slice',
+    params: [
+      p('amount', 'Distance', 0, 0.5, 0.01, 0.12),
+      p('beats', 'Beats per slice', 0.25, 16, 0.25, 1),
+      p('slices', 'Strips', 2, 32, 1, 8),
+      p('snap', 'Snap', 1, 8, 0.5, 4),
+    ],
+  },
+  twirl: {
+    label: 'Twirl',
+    params: [
+      p('amount', 'Twist (turns)', 0, 2, 0.05, 0.5),
+      p('beats', 'Beats per twirl', 0.25, 16, 0.25, 2),
+      p('radius', 'Radius', 0.1, 1.5, 0.05, 0.7),
+      p('snap', 'Snap', 1, 8, 0.5, 2),
+    ],
+  },
+  // Vector lines in the style of the classic "Mystify" screensaver, drawn over the picture.
+  mystify: {
+    label: 'Mystify lines',
+    params: [
+      p('amount', 'Brightness', 0, 1, 0.01, 1),
+      p('trails', 'Trails', 1, 8, 1, 5),
+      p('speed', 'Speed (screens per beat)', 0.02, 0.5, 0.01, 0.12),
+      // 0 glides evenly; 1 jumps forward on each beat and settles.
+      p('punch', 'Beat punch', 0, 1, 0.01, 0.6),
+    ],
+  },
 }
 
 export interface EffectInstance {
@@ -256,6 +298,10 @@ export const PRESET_IDS = [
   'photoFold',
   'photoBounce',
   'spinSweep',
+  'photoWave',
+  'photoSlice',
+  'photoTwirl',
+  'mystify',
 ] as const
 export type PresetId = (typeof PRESET_IDS)[number]
 
@@ -268,6 +314,10 @@ export const PRESET_LABELS: Record<PresetId, { label: string; hint: string }> = 
   photoFold: { label: 'Photo Fold', hint: 'Folds over onto itself every 2 beats' },
   photoBounce: { label: 'Photo Bounce', hint: 'Bounces up and lands on every beat' },
   spinSweep: { label: 'Pixel Spin', hint: 'A wave of spinning tiles bounces across' },
+  photoWave: { label: 'Photo Wave', hint: 'A ripple rolls out from the middle on the beat' },
+  photoSlice: { label: 'Photo Slice', hint: 'Strips slide apart on the beat' },
+  photoTwirl: { label: 'Photo Twirl', hint: 'Twists on the beat and unwinds' },
+  mystify: { label: 'Mystify', hint: 'Bouncing color lines that jump on the beat' },
 }
 
 /** The effects and modulators a preset adds, with ids derived from `prefix`. */
@@ -326,6 +376,14 @@ export function presetItems(id: PresetId, prefix: string): FxChain {
       return { effects: [fx(1, 'bounce', {})], mods: [] }
     case 'spinSweep':
       return { effects: [fx(1, 'pixelSpin', {})], mods: [] }
+    case 'photoWave':
+      return { effects: [fx(1, 'wave', {})], mods: [] }
+    case 'photoSlice':
+      return { effects: [fx(1, 'slice', {})], mods: [] }
+    case 'photoTwirl':
+      return { effects: [fx(1, 'twirl', {})], mods: [] }
+    case 'mystify':
+      return { effects: [fx(1, 'mystify', {})], mods: [] }
   }
 }
 

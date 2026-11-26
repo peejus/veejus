@@ -34,7 +34,16 @@ export const AUTO_STEP_LABELS: Record<string, string> = {
 export type AutoOrder = 'inOrder' | 'shuffle'
 
 /** Beat-locked effects auto-play can put on still photos. */
-export const PHOTO_FX_TYPES = ['pulse', 'fold', 'bounce', 'pixelSpin'] as const
+export const PHOTO_FX_TYPES = [
+  'pulse',
+  'fold',
+  'bounce',
+  'pixelSpin',
+  'wave',
+  'slice',
+  'twirl',
+  'mystify',
+] as const
 export type PhotoFxType = (typeof PHOTO_FX_TYPES)[number]
 /** 'mix' gives each photo the next effect in turn. */
 export type PhotoFx = 'none' | PhotoFxType | 'mix'
@@ -45,6 +54,10 @@ export const PHOTO_FX_LABELS: Record<PhotoFx, string> = {
   fold: 'Fold',
   bounce: 'Bounce',
   pixelSpin: 'Pixel spin',
+  wave: 'Wave',
+  slice: 'Slice',
+  twirl: 'Twirl',
+  mystify: 'Mystify lines',
   mix: 'Mix (a different one each photo)',
 }
 

@@ -1788,3 +1788,36 @@ Asked for: effects on still photos, in sync with the beat: image pulse, the imag
 2. **+ Add effect → Fold**: set Panels to 4 and Direction to up for an accordion.
 3. Change the tempo: the effects speed up and slow down with it. Press **Beat 1** on a downbeat: the fold shuts on the bar's beats.
 4. Open **Auto-play ▾**, set **Photo effect** to **Mix**, and start auto-play: each photo gets the next effect, and GIFs play without one.
+
+## More photo effects and Mystify lines (completed 2026-11-26, awaiting approval)
+
+Asked for: a few more visual effects for still photos, and vector lines like the Windows "Mystify" screensaver, moving in sync with the beat.
+
+### What was built
+
+- **Three more beat-locked photo effects** (FX → + Add effect; presets **Photo Wave**, **Photo Slice**, **Photo Twirl**):
+  - **Wave:** a ripple of rings rolls out from the middle on the beat and fades over the cycle; Ripple, Beats per wave, Rings, Snap.
+  - **Slice:** the picture is cut into horizontal strips that slide apart on the beat (neighbours opposite ways, swapping each time) and snap back; Distance, Beats per slice, Strips, Snap.
+  - **Twirl:** the middle twists on the beat, alternating direction each time, and unwinds; Twist (turns), Beats per twirl, Radius, Snap.
+- **Mystify lines** (FX → + Add effect, or the **Mystify** preset):
+  - Two four-cornered shapes whose corners bounce off the edges of the screen, each with up to 8 fading trail copies, drawn in slowly shifting colors and screened over the picture.
+  - **In sync with the beat:** they move by beats, so they speed up and slow down with the tempo. **Beat punch** makes most of each beat's travel happen right after the beat (0 glides evenly), and the lines flash brighter on every beat.
+  - Settings: Brightness, Trails, Speed (screens per beat), Beat punch. On **Master** it draws over everything, even an empty screen. On a layer it draws over that layer's picture.
+  - The motion is computed directly from the beat position (a bounce is a folded triangle wave), so it needs no state between frames and is the same on every machine.
+- **Auto-play:** all four join the **Photo effect** choices, and **Mix** now cycles through all eight effects.
+
+### Performance
+
+Mystify at 8 trails on the master plus Twirl on a photo: 60.0 fps at 1920×1080, longest frame 16.8 ms, no dropped frames.
+
+### Tests
+
+- End-to-end (`tests/e2e/photofx.spec.ts`, now 10 tests). Slice, Twirl and Wave are checked pixel by pixel against their formulas at the exact beat each frame was drawn (a red left half shows the twist and ripple at the edge). Mystify is checked on an empty black screen: each sampled pixel near a predicted edge (from the same corner tables and bounce as the shader) must be lit, and each one clearly away from every edge must be dark. The preset test covers the new presets.
+- Full suite: 222 unit tests pass and 123 of 124 end-to-end tests passed in one run. The one failure was `beat.spec.ts › Enter resyncs the downbeat to now`, which this work doesn't touch; it passed three reruns in a row (11/11 each), so it's an existing timing flake.
+
+### Manual test script
+
+1. Load a photo, press **FX** on its mixer strip and try **Photo Wave**, **Photo Slice** and **Photo Twirl** with music or a tapped tempo.
+2. Press **FX** on **Master** and click **Mystify**. Lines bounce around over everything, jumping on each beat. Try **Trails** 8 and **Beat punch** 0 and 1.
+3. Change the tempo: the lines speed up and slow down with it.
+4. In **Auto-play ▾**, pick **Mystify lines** as the photo effect, or **Mix** to cycle through all eight.

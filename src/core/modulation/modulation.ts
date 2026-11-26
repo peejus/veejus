@@ -199,6 +199,10 @@ export function effectIsActive(fx: ResolvedEffect): boolean {
     case 'fold':
     case 'bounce':
     case 'pixelSpin':
+    case 'wave':
+    case 'slice':
+    case 'twirl':
+    case 'mystify':
       return a > 1e-4
     case 'hueRotate':
       return a > 0.05 && a < 359.95

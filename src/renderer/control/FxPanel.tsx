@@ -48,6 +48,10 @@ const EFFECT_CARDS: Record<EffectType, { icon: string; hint: string }> = {
   fold: { icon: '⧉', hint: 'Fold over onto itself, in time' },
   bounce: { icon: '⤒', hint: 'Bounce up and land on the beat' },
   pixelSpin: { icon: '❖', hint: 'Tiles spin in a wave that bounces across' },
+  wave: { icon: '◌', hint: 'Ripples roll out from the middle on the beat' },
+  slice: { icon: '☰', hint: 'Strips slide left and right on the beat' },
+  twirl: { icon: '꩜', hint: 'Twist the middle on the beat, then unwind' },
+  mystify: { icon: '⟡', hint: 'Bouncing color lines over the picture' },
 }
 
 /** "Strobe / flash 2" style names, numbered when a chain has several of one type. */
