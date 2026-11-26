@@ -17,7 +17,14 @@ export const EFFECT_INDEX: Record<EffectType, number> = {
   invert: 7,
   hueRotate: 8,
   feedback: 9,
+  pulse: 10,
+  fold: 11,
+  bounce: 12,
+  pixelSpin: 13,
 }
+
+/** uBeat wraps here; every beat count the effects offer divides it. */
+export const BEAT_WRAP = 768
 
 export const EFFECT_FS = `#version 300 es
 precision highp float;
@@ -48,6 +55,12 @@ vec3 hueRotate(vec3 c, float deg) {
   yiq.yz = vec2(yiq.y * co - yiq.z * s, yiq.y * s + yiq.z * co);
   return clamp(toRgb * yiq, 0.0, 1.0);
 }
+
+// Position within a cycle of n beats, 0..1 (n > 0).
+float cyc(float n) { return fract(uBeat / n); }
+
+// Brighten premultiplied color without going past its alpha.
+vec4 brighten(vec4 c, float k) { return vec4(min(c.rgb * k, vec3(c.a)), c.a); }
 
 void main() {
   vec2 uv = vUv;
@@ -94,6 +107,70 @@ void main() {
   } else if (uType == 8) {                // hue rotate
     vec3 straight = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
     outColor = vec4(hueRotate(straight, amt) * c.a, c.a);
+  } else if (uType == 10) {               // pulse: swell on the beat, then ease back
+    float env = pow(1.0 - cyc(uP.y), uP.w);
+    vec4 s = sampleInside(0.5 + (uv - 0.5) / (1.0 + amt * env));
+    outColor = brighten(s, 1.0 + uP.z * env);
+  } else if (uType == 11) {               // fold: one half hinges over onto the other
+    // Shut (as far as amount allows) on the beat, open again halfway through the cycle.
+    float theta = PI * amt * (0.5 + 0.5 * cos(2.0 * PI * cyc(uP.y)));
+    float ct = cos(theta);
+    bool up = uP.z > 0.5;
+    float n = max(1.0, floor(uP.w + 0.5));
+    // t runs along the fold (left to right, or top to bottom); each panel folds its second half.
+    float t = up ? 1.0 - uv.y : uv.x;
+    float tile = floor(t * n);
+    float u = fract(t * n);
+    vec4 base = vec4(0.0), flap = vec4(0.0);
+    float shade = 1.0;
+    float src = -1.0;
+    if (u < 0.5) {
+      base = texture(uSrc, uv);
+      // Folded past upright, the back of the flap lies over this half.
+      if (ct < 0.0) {
+        float w = (0.5 - u) / max(-ct, 1e-4);
+        if (w <= 0.5) { src = 0.5 + w; shade = 0.55 + 0.25 * -ct; }
+      }
+    } else if (ct > 0.0) {
+      float w = (u - 0.5) / max(ct, 1e-4);
+      if (w <= 0.5) { src = 0.5 + w; shade = 1.0 - 0.45 * sin(theta); }
+    }
+    if (src >= 0.0) {
+      float ts = (tile + src) / n;
+      vec2 suv = up ? vec2(uv.x, 1.0 - ts) : vec2(ts, uv.y);
+      flap = texture(uSrc, suv);
+      flap.rgb *= shade;
+    }
+    outColor = flap + base * (1.0 - flap.a);
+  } else if (uType == 12) {               // bounce: lands on the beat, squashes, flies up
+    float f = cyc(uP.y);
+    float h = amt * 4.0 * f * (1.0 - f);
+    float k = max(0.0, 1.0 - f * 6.0);
+    float sq = uP.z * k * k;
+    vec2 scale = vec2(1.0 + 0.6 * sq, 1.0 - sq);
+    // Anchored at the bottom edge (GL y is up).
+    vec2 s = vec2(0.5 + (uv.x - 0.5) / scale.x, (uv.y - h) / scale.y);
+    outColor = sampleInside(s);
+  } else if (uType == 13) {               // pixel spin: a wave of spinning tiles, back and forth
+    float size = max(2.0, uP.y);
+    float w = max(0.01, uP.w);
+    float ph = cyc(2.0 * uP.z);
+    float front = 1.0 - abs(2.0 * ph - 1.0);           // 0 to 1 and back, one sweep per cycle
+    float pos = -w + front * (1.0 + 2.0 * w);           // starts and ends off the picture
+    vec2 px = uv * uRes;
+    vec2 center = (floor(px / size) + 0.5) * size;
+    float k = smoothstep(0.0, 1.0, clamp(1.0 - abs(center.x / uRes.x - pos) / w, 0.0, 1.0));
+    if (k <= 0.0 || amt <= 0.0) {
+      outColor = c;
+    } else {
+      float a = 2.0 * PI * amt * k;
+      float sc = 1.0 - 0.3 * k;
+      vec2 l = px - center;
+      vec2 r = mat2(cos(a), -sin(a), sin(a), cos(a)) * l / sc;
+      outColor = max(abs(r.x), abs(r.y)) > size * 0.5
+        ? vec4(0.0)
+        : texture(uSrc, (center + r) / uRes);
+    }
   } else {                                // feedback / trails: lighten over the decayed past
     // The small bias makes trails fade out fully instead of sticking at an 8-bit residue
     // (round(v * 0.98) == v for small v).

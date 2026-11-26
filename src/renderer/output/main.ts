@@ -22,8 +22,8 @@ import {
   type MasterSettings,
 } from '@shared/layers'
 import type { PadSource } from '@shared/pads'
-import type { AutoSource } from '@shared/autoplay'
-import { FX_SCOPES, emptyFxConfig, type FxConfig, type FxScope } from '@shared/fx'
+import { AUTO_PAD_ID, PHOTO_FX_TYPES, type AutoSource, type PhotoFxType } from '@shared/autoplay'
+import { FX_SCOPES, defaultParams, emptyFxConfig, type FxConfig, type FxScope } from '@shared/fx'
 import { resolveChain, type ModContext, type ResolvedChain } from '@core/modulation/modulation'
 import { HOP_SIZE } from '@core/audio/analyzer'
 import { BeatEngine } from '@core/beat/beatEngine'
@@ -123,6 +123,28 @@ function resolveAll(now: number): Record<FxScope, ResolvedChain> {
 let resolved: Record<FxScope, ResolvedChain> | null = null
 /** Beat position the current frame was resolved at. */
 let frameBeatPos = 0
+
+/** The photo effect auto-play last chose, per shown photo (so 'mix' moves on each photo). */
+let photoFxPick: { key: string; type: PhotoFxType } | null = null
+let photoFxTurn = 0
+
+/** Auto-play's photo effect, added to its layer's chain while it shows a still. */
+function addPhotoFx(fx: Record<FxScope, ResolvedChain>): void {
+  const s = scheduler.autoPlay
+  const choice = s.photoFx ?? 'none'
+  if (!s.enabled || choice === 'none') return
+  const cur = layers[s.layer].current
+  const v = scheduler.voiceOn(s.layer)
+  if (!cur || !v || cur.owner !== AUTO_PAD_ID || v.padId !== AUTO_PAD_ID) return
+  if (cur.clip.kind !== 'image' || cur.clip.frameCount > 1) return
+  const key = `${cur.id}@${v.startPos}`
+  if (photoFxPick?.key !== key) {
+    const type = choice === 'mix' ? PHOTO_FX_TYPES[photoFxTurn++ % PHOTO_FX_TYPES.length]! : choice
+    photoFxPick = { key, type }
+  }
+  const type = choice === 'mix' ? photoFxPick.type : choice
+  fx[s.layer].effects.push({ id: 'autoPhoto', type, params: defaultParams(type) })
+}
 
 /** Is anything visible on the takeover layer right now? */
 function takeoverActive(): boolean {
@@ -366,7 +388,11 @@ function fxLiveValues(fx: Record<FxScope, ResolvedChain>): FxLiveValues {
 }
 
 /** Pixel reads requested by tests; served right after the next frame is drawn. */
-const pixelRequests: { fx: number; fy: number; resolve: (px: number[] | null) => void }[] = []
+const pixelRequests: {
+  fx: number
+  fy: number
+  resolve: (px: number[] | null, effectBeat: number) => void
+}[] = []
 
 bridge.onControlMessage((msg) => {
   if (!isControlToOutput(msg)) return
@@ -602,9 +628,12 @@ function frame(now: number): void {
   applyTriggerActions(scheduler.update(now, dt > 0 ? dt : 1000 / 60, beat.clock), now)
 
   const fx = resolveAll(now)
+  addPhotoFx(fx)
   resolved = fx
   const beatPos = beat.clock.position(now)
   frameBeatPos = beatPos
+  // Effects count beats from bar 1 (as LFOs do), so multi-beat cycles line up with bars.
+  const fxBeat = beatPos + beat.clock.barOffsetBeats
   const takeover = takeoverActive()
   const pauseBelow = takeover && layersConfig.takeoverMode === 'pause'
   stage.beginFrame(background)
@@ -617,19 +646,19 @@ function frame(now: number): void {
       blend: layersConfig.layers[id].blend,
       entranceProgress: entranceProgress(id, now),
       offset: fx[id],
-      fx: { scope: id, effects: fx[id].effects, beat: beatPos },
+      fx: { scope: id, effects: fx[id].effects, beat: fxBeat },
     })
   }
   const m = fx.master
   stage.endFrame(
     masterBrightness(),
-    { scope: 'master', effects: m.effects, beat: beatPos },
+    { scope: 'master', effects: m.effects, beat: fxBeat },
     { scale: m.scale, rotationDeg: m.rotation, x: m.x, y: m.y },
   )
 
   while (pixelRequests.length > 0) {
     const r = pixelRequests.shift()!
-    r.resolve(stage.readPicturePixel(r.fx, r.fy))
+    r.resolve(stage.readPicturePixel(r.fx, r.fy), fxBeat)
   }
   // Preview readback is asynchronous: collect a finished one, maybe start the next.
   const preview = stage.takePreview()
@@ -776,6 +805,11 @@ function frame(now: number): void {
   /** RGBA of the pixel at fractional canvas position (fx, fy), read after the next frame. */
   samplePixel: (fx: number, fy: number) =>
     new Promise<number[] | null>((resolve) => pixelRequests.push({ fx, fy, resolve })),
+  /** Like samplePixel, plus the beat the effects were drawn at on that frame. */
+  samplePixelWithBeat: (fx: number, fy: number) =>
+    new Promise<{ px: number[] | null; beat: number }>((resolve) =>
+      pixelRequests.push({ fx, fy, resolve: (px, beat) => resolve({ px, beat }) }),
+    ),
   /** Force a degradation level (tests); null hands control back to the watchdog. */
   setDegradeLevel: (level: number | null) => {
     watchdogPinned = level !== null

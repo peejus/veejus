@@ -3,7 +3,7 @@ import type { BlendMode, KeySettings } from '@shared/layers'
 import type { Rgb } from '@shared/protocol'
 import { effectIsActive, type ResolvedEffect } from '@core/modulation/modulation'
 import { EFFECT_DEFS } from '@shared/fx'
-import { EFFECT_FS, EFFECT_INDEX } from './effectShader'
+import { BEAT_WRAP, EFFECT_FS, EFFECT_INDEX } from './effectShader'
 import {
   DEFAULT_OUTPUT_OPTIONS,
   pictureLayout,
@@ -513,7 +513,8 @@ export class Stage {
     const v = EFFECT_DEFS[fx.type].params.map((s) => fx.params[s.name] ?? s.default)
     gl.uniform4f(u.uP!, v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 0)
     // Wrapped to keep float precision; 256 beats is a whole number of every strobe/shake cycle.
-    gl.uniform1f(u.uBeat!, ((beat % 256) + 256) % 256)
+    // Wrapped at 768 beats (2^8 x 3), so beat counts like 3 or 6 also stay seamless.
+    gl.uniform1f(u.uBeat!, ((beat % BEAT_WRAP) + BEAT_WRAP) % BEAT_WRAP)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     gl.bindVertexArray(null)
     gl.activeTexture(gl.TEXTURE0)

@@ -44,6 +44,10 @@ const EFFECT_CARDS: Record<EffectType, { icon: string; hint: string }> = {
   invert: { icon: '◑', hint: 'Negative colors' },
   hueRotate: { icon: '◍', hint: 'Shift every color around the wheel' },
   feedback: { icon: '◎', hint: 'Trails and tunnels from earlier frames' },
+  pulse: { icon: '◉', hint: 'Swell and glow on the beat' },
+  fold: { icon: '⧉', hint: 'Fold over onto itself, in time' },
+  bounce: { icon: '⤒', hint: 'Bounce up and land on the beat' },
+  pixelSpin: { icon: '❖', hint: 'Tiles spin in a wave that bounces across' },
 }
 
 /** "Strobe / flash 2" style names, numbered when a chain has several of one type. */

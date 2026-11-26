@@ -1756,3 +1756,35 @@ Asked for: easier start-up, easier loading of images and GIFs, and a one-button 
 5. Fire a pad that plays on the Background layer. It takes over, and auto-play comes back on the beat after it ends.
 6. Press **P** to stop and start it, then **Esc**: it stops and the button goes grey.
 7. Quit and start Veejus again: the library and auto-play settings come back.
+
+## Beat-locked photo effects (completed 2026-11-26, awaiting approval)
+
+Asked for: effects on still photos, in sync with the beat: image pulse, the image folding onto itself, the image bouncing up and down, and a pixel spin that bounces across the image.
+
+### What was built
+
+- **Four new effects** (FX → + Add effect), each a shader pass with its own beat count, so it is locked to whatever clock is running (tap, audio detection, MIDI clock, Link) with no modulator to set up:
+  - **Pulse:** the picture swells on every beat (or every N beats) and eases back; Size, Beats per pulse, Brightness (a glow with the swell) and Snap (how sharply it falls back).
+  - **Fold:** one half hinges over onto the other like paper: shut (as far as Fold allows) on the beat, open again halfway through the cycle. The folded flap is shaded and its back shows mirrored. Direction: the right side over the left, or the bottom up over the top. Panels (1–8) make it an accordion.
+  - **Bounce:** the picture lands on the beat, squashes for a moment, and flies up in a parabola between beats; Height, Beats per bounce, Squash.
+  - **Pixel spin:** the picture is cut into square tiles, and a wave of spinning, shrinking tiles sweeps across it and bounces back; Turns, Tile size, Beats per sweep (one pass), Wave width.
+- **Presets:** **Photo Pulse**, **Photo Fold**, **Photo Bounce** and **Pixel Spin** join the one-click presets in every FX panel.
+- **Auto-play photo effect:** a **Photo effect** setting in the auto-play panel puts one of them on each still photo while auto-play shows it: Pulse, Fold, Bounce, Pixel spin, or **Mix** (the next one in turn for each photo, so no two in a row match). GIFs and videos play untouched. Settings saved before this have no photo effect and still load.
+- **Bar alignment:** effects now count beats from bar 1 (as LFOs already did), so a 2- or 4-beat fold or sweep lines up with the bar after **Beat 1** / Enter. The beat passed to shaders wraps at 768 beats instead of 256, so beat counts of 3 or 6 stay seamless too.
+
+### Files
+
+- `src/shared/fx.ts` (effect definitions and presets), `src/renderer/output/effectShader.ts` (the four shaders), `src/renderer/output/stage.ts` (beat wrap), `src/core/modulation/modulation.ts` (when each effect is active).
+- `src/shared/autoplay.ts` (`photoFx`), `src/renderer/output/main.ts` (adding the photo effect to the auto-play layer; bar-aligned effect beat; a test hook that returns a pixel with the beat its frame was drawn at), `src/renderer/control/AutoPlay.tsx`, `FxPanel.tsx`.
+
+### Tests
+
+- End-to-end (`tests/e2e/photofx.spec.ts`, 6 tests). For each effect, about 90–150 frames of a red still over black are sampled together with the beat each frame was drawn at, and every clear-cut pixel must match the effect's formula at that beat (and both states must turn up). Plus: the presets add the right effect, and auto-play's Mix puts at least three different photo effects on successive stills (none when switched off).
+- Unit: photo-effect settings guard (including older settings without it); the existing guard and preset tests cover the new effects and presets. The guard test now spreads every effect type over two chains, since there are more types (14) than one chain may hold (12).
+
+### Manual test script
+
+1. Load a few photos and press **FX** on the Background strip. Try **Photo Pulse**, **Photo Fold**, **Photo Bounce** and **Pixel Spin** in turn, with music playing or after tapping a tempo. Each moves on the beat.
+2. **+ Add effect → Fold**: set Panels to 4 and Direction to up for an accordion.
+3. Change the tempo: the effects speed up and slow down with it. Press **Beat 1** on a downbeat: the fold shuts on the bar's beats.
+4. Open **Auto-play ▾**, set **Photo effect** to **Mix**, and start auto-play: each photo gets the next effect, and GIFs play without one.

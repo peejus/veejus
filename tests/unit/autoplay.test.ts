@@ -201,6 +201,12 @@ describe('auto-play', () => {
 describe('auto-play settings in sets', () => {
   it('are validated, optional for older sets, and switching on is not an unsaved change', () => {
     expect(isAutoPlaySettings(DEFAULT_AUTO_PLAY)).toBe(true)
+    expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, photoFx: 'mix' })).toBe(true)
+    expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, photoFx: 'sparkle' })).toBe(false)
+    // Settings saved before photo effects existed still load.
+    const older: Record<string, unknown> = { ...DEFAULT_AUTO_PLAY }
+    delete older.photoFx
+    expect(isAutoPlaySettings(older)).toBe(true)
     expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, step: 3 })).toBe(false)
     expect(
       isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, source: { kind: 'collection', tag: '' } }),

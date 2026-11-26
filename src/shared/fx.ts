@@ -15,6 +15,10 @@ export const EFFECT_TYPES = [
   'invert',
   'hueRotate',
   'feedback',
+  'pulse',
+  'fold',
+  'bounce',
+  'pixelSpin',
 ] as const
 export type EffectType = (typeof EFFECT_TYPES)[number]
 
@@ -97,6 +101,45 @@ export const EFFECT_DEFS: Record<EffectType, { label: string; params: ParamSpec[
     params: [
       p('amount', 'Trail', 0, 0.98, 0.01, 0.8),
       p('zoom', 'Tunnel zoom', -0.05, 0.05, 0.001, 0.01),
+    ],
+  },
+  // Beat-locked motion (made for still photos): each runs on its own beat count, so it moves
+  // with whatever clock is running without a modulator.
+  pulse: {
+    label: 'Pulse',
+    params: [
+      p('amount', 'Size', 0, 0.5, 0.01, 0.12),
+      p('beats', 'Beats per pulse', 0.25, 16, 0.25, 1),
+      p('glow', 'Brightness', 0, 1, 0.01, 0.25),
+      p('snap', 'Snap', 1, 8, 0.5, 3),
+    ],
+  },
+  fold: {
+    label: 'Fold',
+    params: [
+      p('amount', 'Fold', 0, 1, 0.01, 0.85),
+      p('beats', 'Beats per fold', 0.25, 16, 0.25, 2),
+      // 0 = the right side folds over the left, 1 = the bottom folds up over the top.
+      p('direction', 'Direction (side / up)', 0, 1, 1, 0),
+      p('panels', 'Panels', 1, 8, 1, 1),
+    ],
+  },
+  bounce: {
+    label: 'Bounce',
+    params: [
+      p('amount', 'Height', 0, 0.5, 0.01, 0.1),
+      p('beats', 'Beats per bounce', 0.25, 16, 0.25, 1),
+      p('squash', 'Squash', 0, 0.5, 0.01, 0.15),
+    ],
+  },
+  pixelSpin: {
+    label: 'Pixel spin',
+    params: [
+      p('amount', 'Turns', 0, 4, 0.25, 1),
+      p('size', 'Tile size (px)', 4, 128, 1, 32),
+      // One pass across the picture; it bounces back on the next.
+      p('beats', 'Beats per sweep', 0.25, 16, 0.25, 2),
+      p('width', 'Wave width', 0.05, 1, 0.01, 0.3),
     ],
   },
 }
@@ -204,7 +247,16 @@ export function targetSpec(chain: FxChain, target: string): ParamSpec | null {
 
 // ---- Presets ------------------------------------------------------------------
 
-export const PRESET_IDS = ['kickBump', 'snareStrobe', 'barShake', 'dropFlash'] as const
+export const PRESET_IDS = [
+  'kickBump',
+  'snareStrobe',
+  'barShake',
+  'dropFlash',
+  'photoPulse',
+  'photoFold',
+  'photoBounce',
+  'spinSweep',
+] as const
 export type PresetId = (typeof PRESET_IDS)[number]
 
 export const PRESET_LABELS: Record<PresetId, { label: string; hint: string }> = {
@@ -212,6 +264,10 @@ export const PRESET_LABELS: Record<PresetId, { label: string; hint: string }> = 
   snareStrobe: { label: 'Snare Strobe', hint: 'White flash on beats 2 and 4' },
   barShake: { label: 'Bar Shake', hint: 'A shake that settles over each bar' },
   dropFlash: { label: 'Drop Flash', hint: 'White flash plus zoom on each phrase start' },
+  photoPulse: { label: 'Photo Pulse', hint: 'The picture swells and glows on every beat' },
+  photoFold: { label: 'Photo Fold', hint: 'Folds over onto itself every 2 beats' },
+  photoBounce: { label: 'Photo Bounce', hint: 'Bounces up and lands on every beat' },
+  spinSweep: { label: 'Pixel Spin', hint: 'A wave of spinning tiles bounces across' },
 }
 
 /** The effects and modulators a preset adds, with ids derived from `prefix`. */
@@ -262,6 +318,14 @@ export function presetItems(id: PresetId, prefix: string): FxChain {
         ],
       }
     }
+    case 'photoPulse':
+      return { effects: [fx(1, 'pulse', {})], mods: [] }
+    case 'photoFold':
+      return { effects: [fx(1, 'fold', {})], mods: [] }
+    case 'photoBounce':
+      return { effects: [fx(1, 'bounce', {})], mods: [] }
+    case 'spinSweep':
+      return { effects: [fx(1, 'pixelSpin', {})], mods: [] }
   }
 }
 

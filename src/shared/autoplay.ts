@@ -33,6 +33,21 @@ export const AUTO_STEP_LABELS: Record<string, string> = {
 
 export type AutoOrder = 'inOrder' | 'shuffle'
 
+/** Beat-locked effects auto-play can put on still photos. */
+export const PHOTO_FX_TYPES = ['pulse', 'fold', 'bounce', 'pixelSpin'] as const
+export type PhotoFxType = (typeof PHOTO_FX_TYPES)[number]
+/** 'mix' gives each photo the next effect in turn. */
+export type PhotoFx = 'none' | PhotoFxType | 'mix'
+export const PHOTO_FX: readonly PhotoFx[] = ['none', ...PHOTO_FX_TYPES, 'mix']
+export const PHOTO_FX_LABELS: Record<PhotoFx, string> = {
+  none: 'None',
+  pulse: 'Pulse',
+  fold: 'Fold',
+  bounce: 'Bounce',
+  pixelSpin: 'Pixel spin',
+  mix: 'Mix (a different one each photo)',
+}
+
 export interface AutoPlaySettings {
   enabled: boolean
   source: AutoSource
@@ -40,6 +55,8 @@ export interface AutoPlaySettings {
   order: AutoOrder
   layer: LayerId
   fit: FitMode
+  /** Effect on still photos while auto-play shows them (missing in older settings: none). */
+  photoFx?: PhotoFx
 }
 
 export const DEFAULT_AUTO_PLAY: AutoPlaySettings = {
@@ -49,6 +66,7 @@ export const DEFAULT_AUTO_PLAY: AutoPlaySettings = {
   order: 'inOrder',
   layer: 'background',
   fit: 'cover',
+  photoFx: 'none',
 }
 
 /** Pad id the auto-play voice uses in the scheduler (and in "what's on each layer"). */
@@ -106,7 +124,8 @@ export function isAutoPlaySettings(v: unknown): v is AutoPlaySettings {
     AUTO_STEPS.includes(v.step as AutoStep) &&
     (v.order === 'inOrder' || v.order === 'shuffle') &&
     isLayerId(v.layer) &&
-    FITS.includes(v.fit as FitMode)
+    FITS.includes(v.fit as FitMode) &&
+    (v.photoFx === undefined || PHOTO_FX.includes(v.photoFx as PhotoFx))
   )
 }
 

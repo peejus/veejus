@@ -2,6 +2,9 @@ import { useState, type DragEvent } from 'react'
 import {
   AUTO_STEPS,
   AUTO_STEP_LABELS,
+  PHOTO_FX,
+  PHOTO_FX_LABELS,
+  type PhotoFx,
   type AutoPlayStatus,
   type AutoSource,
   type AutoStep,
@@ -194,6 +197,24 @@ export function AutoPlayPanel(p: {
           ))}
         </select>
       </label>
+      <label className="field">
+        <span className="label">Photo effect</span>
+        <select
+          aria-label="Auto-play photo effect"
+          value={settings.photoFx ?? 'none'}
+          onChange={(e) => set({ photoFx: e.target.value as PhotoFx })}
+        >
+          {PHOTO_FX.map((f) => (
+            <option key={f} value={f}>
+              {PHOTO_FX_LABELS[f]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="hint">
+        Moves still photos in time with the beat. GIFs and videos play as they are. For more
+        control, add Pulse, Fold, Bounce or Pixel spin from a layer’s FX.
+      </p>
       <label className="field">
         <span className="label">Layer</span>
         <select

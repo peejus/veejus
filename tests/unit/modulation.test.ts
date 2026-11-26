@@ -13,6 +13,7 @@ import {
 } from '@core/modulation/modulation'
 import {
   EFFECT_TYPES,
+  MAX_EFFECTS,
   LFO_PERIODS,
   LFO_SHAPES,
   PRESET_IDS,
@@ -299,7 +300,9 @@ describe('fx guards', () => {
   it('accept defaults for every effect and reject out-of-range values', () => {
     const cfg = emptyFxConfig()
     for (const [i, type] of EFFECT_TYPES.entries()) {
-      cfg.overlayA.effects.push({ id: `e${i}`, type, enabled: true, params: defaultParams(type) })
+      // Two chains: there are more effect types than one chain may hold.
+      const scope = i < MAX_EFFECTS ? 'overlayA' : 'overlayB'
+      cfg[scope].effects.push({ id: `e${i}`, type, enabled: true, params: defaultParams(type) })
     }
     expect(isFxConfig(cfg)).toBe(true)
     expect(isControlToOutput({ type: 'setFx', config: cfg })).toBe(true)
