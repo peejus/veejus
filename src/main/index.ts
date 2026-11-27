@@ -35,6 +35,7 @@ import {
   writeAtomic,
 } from './sets'
 import { SET_EXTENSION, type SetClip, type VeejusSet } from '@shared/set'
+import { hardwareDecodeFor, readAppSettings, writeAppSettings } from './appSettings'
 import { handleMediaProtocol, registerMediaScheme } from './mediaProtocol'
 
 // Keep paused, preloaded video players decoded so a trigger starts on the next frame,
@@ -42,19 +43,23 @@ import { handleMediaProtocol, registerMediaScheme } from './mediaProtocol'
 app.commandLine.appendSwitch('disable-media-suspend')
 app.commandLine.appendSwitch('disable-background-media-suspend')
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+// Tests run each launch in a fresh profile so window storage never leaks between runs (or
+// into a performer's own settings).
+if (process.env['VEEJUS_USER_DATA']) app.setPath('userData', process.env['VEEJUS_USER_DATA'])
 // Hardware video decoders stall the GPU process for a frame or more each time one starts,
 // which shows as output hitches while clips preload. Short VJ clips decode cheaply on the
-// CPU, so software decoding is the default. Set VEEJUS_HW_VIDEO_DECODE=1 to opt back in.
-if (process.env['VEEJUS_HW_VIDEO_DECODE'] !== '1') {
-  app.commandLine.appendSwitch('disable-accelerated-video-decode')
-}
+// CPU, so software decoding is the default. But only hardware decoding plays HEVC on a Mac,
+// so it can be turned on in Setup → Diagnostics (from the next start), or for one run with
+// VEEJUS_HW_VIDEO_DECODE=1 (=0 forces it off).
+const hwDecode = hardwareDecodeFor(
+  readAppSettings(app.getPath('userData')),
+  process.env['VEEJUS_HW_VIDEO_DECODE'],
+)
+if (!hwDecode.on) app.commandLine.appendSwitch('disable-accelerated-video-decode')
 registerMediaScheme()
 // Never show Electron's error dialog on stage: log the error and keep running.
 process.on('uncaughtException', (err) => console.error('[veejus] uncaught exception:', err))
 process.on('unhandledRejection', (err) => console.error('[veejus] unhandled rejection:', err))
-// Tests run each launch in a fresh profile so window storage never leaks between runs (or
-// into a performer's own settings).
-if (process.env['VEEJUS_USER_DATA']) app.setPath('userData', process.env['VEEJUS_USER_DATA'])
 
 const library = new Library()
 const sets = new SetStore(app.getPath('userData'))
@@ -394,6 +399,11 @@ async function importAndBroadcast(paths: string[]): Promise<MainResponse> {
   return { type: 'imported', result }
 }
 
+function videoDecodeState(): MainResponse {
+  const saved = readAppSettings(app.getPath('userData')).hardwareVideoDecode
+  return { type: 'videoDecode', state: { active: hwDecode.on, saved, forced: hwDecode.forced } }
+}
+
 async function handleMainRequest(req: MainRequest): Promise<MainResponse> {
   switch (req.type) {
     case 'listDisplays':
@@ -443,6 +453,20 @@ async function handleMainRequest(req: MainRequest): Promise<MainResponse> {
       return { type: 'recentSets', sets: await sets.recent() }
     case 'relink':
       return relink(req.folder, req.clips)
+    case 'getVideoDecode':
+      return videoDecodeState()
+    case 'setVideoDecode': {
+      const userData = app.getPath('userData')
+      writeAppSettings(userData, {
+        ...readAppSettings(userData),
+        hardwareVideoDecode: req.hardware,
+      })
+      return videoDecodeState()
+    }
+    case 'relaunch':
+      app.relaunch()
+      app.quit()
+      return { type: 'ok' }
   }
 }
 

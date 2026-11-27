@@ -1,4 +1,5 @@
 import { MIN_TRIM_MS, type ClipInfo, type ClipTrim } from '@shared/protocol'
+import { codecProblemAt } from '@shared/videoCodec'
 
 const LOAD_TIMEOUT_MS = 20_000
 
@@ -67,16 +68,24 @@ export class VideoClip {
       v.addEventListener('error', onError)
       v.src = info.url
       v.load()
-    }).catch((err: unknown) => {
+    }).catch(async (err: unknown) => {
+      // Read the error before dispose() clears it.
+      const unsupported = v.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
       clip.dispose()
-      throw err
+      throw (unsupported && (await clip.codecError())) || err
     })
     if (v.videoWidth === 0 || v.videoHeight === 0) {
       clip.dispose()
-      throw new Error('Video has no picture track')
+      throw (await clip.codecError()) ?? new Error('Video has no picture track')
     }
     clip.watchFrames()
     return clip
+  }
+
+  /** The codec, when it explains why this video won't play. */
+  private async codecError(): Promise<Error | null> {
+    const problem = await codecProblemAt(this.info.url, this.info.sizeBytes)
+    return problem ? new Error(problem) : null
   }
 
   private watchFrames(): void {

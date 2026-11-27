@@ -1,4 +1,5 @@
 import type { ClipInfo } from '@shared/protocol'
+import { codecProblemAt } from '@shared/videoCodec'
 
 /** What the control UI knows about a clip from probing it (independent of the output). */
 export interface ClipMeta {
@@ -77,6 +78,11 @@ function once(target: EventTarget, ok: string, fail = 'error'): Promise<void> {
   })
 }
 
+/** A video that won't load: name the codec when that's why, else give `fallback`. */
+async function videoError(info: ClipInfo, fallback: string): Promise<Error> {
+  return new Error((await codecProblemAt(info.url, info.sizeBytes)) ?? fallback)
+}
+
 async function probeVideo(info: ClipInfo): Promise<ClipMeta> {
   const v = document.createElement('video')
   v.crossOrigin = 'anonymous'
@@ -85,15 +91,16 @@ async function probeVideo(info: ClipInfo): Promise<ClipMeta> {
   try {
     const loaded = once(v, 'loadeddata')
     v.src = info.url
-    await loaded.catch(() => {
+    await loaded.catch(async () => {
       const code = v.error?.code
-      throw new Error(
+      throw await videoError(
+        info,
         code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
           ? 'Unsupported format or codec'
           : 'Could not decode video (corrupt file?)',
       )
     })
-    if (!v.videoWidth || !v.videoHeight) throw new Error('Video has no picture track')
+    if (!v.videoWidth || !v.videoHeight) throw await videoError(info, 'Video has no picture track')
     const duration = Number.isFinite(v.duration) ? v.duration : 0
     // Grab a frame a little way in; the very first frame is often black.
     const seekTo = Math.min(0.5, duration * 0.25)

@@ -260,7 +260,7 @@ test('the pad editor sets layer, placement and keying', async () => {
   await showMoreSettings(h.control)
   await h.control.getByLabel('Pad quantize').selectOption('off')
   await h.control.getByLabel('Position').selectOption('topRight')
-  await h.control.getByLabel('Size').fill('0.25')
+  await h.control.getByLabel('Size', { exact: true }).fill('0.25')
   await h.control.locator('.pad-editor summary', { hasText: 'Keying' }).click()
   await h.control.getByLabel('Key', { exact: true }).selectOption('green')
   await h.control.locator('body').click({ position: { x: 5, y: 5 } })
