@@ -48,7 +48,13 @@ export class MediaManager {
       }
     }
     for (const info of clips) {
-      if (this.entries.has(info.id)) continue
+      const known = this.entries.get(info.id)
+      if (known) {
+        // Metadata changed (a trim): loaded videos follow it.
+        known.info = info
+        if (known.clip?.kind === 'video') known.clip.setTrim(info.trim ?? null)
+        continue
+      }
       this.entries.set(info.id, { info, state: 'cold' })
       this.preloadQueue.push(info.id)
       this.onState(info.id, 'cold')
@@ -140,6 +146,8 @@ export class MediaManager {
         }
         e.clip = clip
         e.loading = undefined
+        // The trim may have changed while it loaded.
+        if (clip.kind === 'video') clip.setTrim(e.info.trim ?? null)
         for (const evictedId of budget.add(id, cost)) {
           const victim = this.entries.get(evictedId)
           if (victim) this.unload(evictedId, victim)

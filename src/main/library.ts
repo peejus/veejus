@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readdir, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
-import type { ClipInfo, ImportResult } from '@shared/protocol'
+import type { ClipInfo, ClipTrim, ImportResult } from '@shared/protocol'
 import { clipUrl, mediaTypeFor } from '@shared/mediaTypes'
 
 /** Folder scans stop here so an accidental drop of a whole drive cannot hang the app. */
@@ -46,23 +46,33 @@ export class Library {
    * Returns path -> clip id for the ones that were added or already known.
    */
   async load(
-    entries: { path: string; tags: string[]; favorite: boolean }[],
+    entries: { path: string; tags: string[]; favorite: boolean; trim?: ClipTrim | null }[],
   ): Promise<Map<string, string>> {
     const ids = new Map<string, string>()
     for (const e of entries) {
       await this.importPaths([e.path])
       const id = clipIdForPath(e.path)
-      if (this.setMeta(id, { tags: e.tags, favorite: e.favorite })) ids.set(e.path, id)
+      if (this.setMeta(id, { tags: e.tags, favorite: e.favorite, trim: e.trim ?? null }))
+        ids.set(e.path, id)
     }
     return ids
   }
 
-  /** Update a clip's collections / favorite flag. Returns false for an unknown clip. */
-  setMeta(id: string, meta: { tags?: string[]; favorite?: boolean }): boolean {
+  /** Update a clip's collections / favorite flag / trim. Returns false for an unknown clip. */
+  setMeta(
+    id: string,
+    meta: { tags?: string[]; favorite?: boolean; trim?: ClipTrim | null },
+  ): boolean {
     const clip = this.clips.get(id)
     if (!clip) return false
     if (meta.tags) clip.tags = [...new Set(meta.tags)].sort((a, b) => naturalCompare(a, b))
     if (meta.favorite !== undefined) clip.favorite = meta.favorite
+    // Only videos are trimmed; an untrimmed range (0 to the end) is stored as none.
+    if (meta.trim !== undefined)
+      clip.trim =
+        clip.kind === 'video' && meta.trim && (meta.trim.inMs > 0 || meta.trim.outMs !== null)
+          ? { inMs: meta.trim.inMs, outMs: meta.trim.outMs }
+          : null
     return true
   }
 
@@ -108,6 +118,7 @@ export class Library {
         url: clipUrl(id),
         tags: [],
         favorite: false,
+        trim: null,
       })
       added++
     }

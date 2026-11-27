@@ -36,6 +36,8 @@ export interface OutputTestState {
       clipId?: string
       atMs: number
       startPos?: number
+      startMs?: number
+      syncBeats?: number | null
       posAtFire: number
     }[]
     beatsPerMs: number
@@ -51,6 +53,8 @@ export interface OutputTestState {
       paused: boolean
       transform: { cx: number; cy: number; w: number; h: number; rotation: number } | null
       opacity: number
+      videoTime: number | null
+      playbackRate: number | null
     }
   >
   takeoverActive: boolean

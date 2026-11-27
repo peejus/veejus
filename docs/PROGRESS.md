@@ -1821,3 +1821,69 @@ Mystify at 8 trails on the master plus Twirl on a photo: 60.0 fps at 1920×1080,
 2. Press **FX** on **Master** and click **Mystify**. Lines bounce around over everything, jumping on each beat. Try **Trails** 8 and **Beat punch** 0 and 1.
 3. Change the tempo: the lines speed up and slow down with it.
 4. In **Auto-play ▾**, pick **Mystify lines** as the photo effect, or **Mix** to cycle through all eight.
+
+## Videos in auto-play (Phase A of video support, 2026-11-26)
+
+Asked for: videos to work in addition to pictures. Library, pads and layers already played video; auto-play and the photo effects were built around stills and GIFs. This phase makes auto-play treat videos as normal clips.
+
+### What was built
+
+- **Long videos play at normal speed.** The **Auto** step used to squeeze any clip into at most 16 beats, so a 60 s video at 120 BPM ran at 7.5×. Now `autoStepPlan` (`src/shared/autoplay.ts`) only stretches a clip by up to √2 either way (to 1, 2, 4, 8 or 16 beats); a clip longer than that plays at 1× for the new **Long videos** setting (1, 2, 4 or 8 bars; 2 by default, 4 for older settings). A clip shorter than a beat loops 1, 2 or 4 times within it.
+- **Videos start at** a random spot (default), where they left off, or the beginning, whenever a clip plays at normal speed and is longer than its turn. The scheduler decides the spot as soon as the upcoming clip's length is known (it has loaded) and cues it (`ClipSource.cue` → `VideoClip.cue`, a seek while paused), so the start doesn't wait for a seek to decode. Starts carry `startMs` to `ClipLayer.play`; animated images honour it too.
+- **Sources:** **Videos** joins the source list, and **Everything** is now the default for new settings (saved settings and sets keep theirs). Quick start says **Choose images, GIFs & videos…**; importing into an empty library with an images-only or videos-only source switches it to Everything so what was added plays.
+- **Beat effect** (was Photo effect) has **Effect on**: still photos (default), photos and videos, or everything.
+- Older settings without the new fields still load (`photoFxOn`, `videoStart`, `longBeats` are optional).
+
+### Files
+
+- `src/shared/autoplay.ts`, `src/core/trigger/scheduler.ts`, `src/renderer/output/media/videoClip.ts`, `src/renderer/output/clipLayer.ts`, `src/renderer/output/main.ts`, `src/renderer/control/AutoPlay.tsx`, `App.tsx`, `useAutoPlay.ts`.
+
+### Tests
+
+- Unit (`tests/unit/autoplay.test.ts`): stretch limits across clip lengths, long-video and sub-beat plans, random starts within range and cued ahead with the same spot, continue (advancing and wrapping), beginning and synced clips start at 0, cueing once the next clip loads, and the settings guards.
+- End-to-end: `autoplay.spec.ts` plays the 2 s fixture videos one beat each from random spots: each change lands on the beat, playback rate is 1, and the video time is near the asked spot. `photofx.spec.ts` checks the beat effect stays off videos unless **Effect on** includes them.
+
+### Manual test script
+
+1. Add a few long videos (a minute or more) and some photos. Start auto-play with **Auto** step: videos play at normal speed for 2 bars, each from a different spot.
+2. Set **Long videos** to 1 bar and 8 bars; set **Videos start at** to **Where it left off**: each turn picks up where the last one ended.
+3. Add a short (2–8 s) video: it plays through once, close to its own speed, changing on the beat.
+4. Set **Beat effect** to Pulse and **Effect on** to Photos and videos: videos pulse too.
+
+## Video trim and pad video options (Phase B of video support, 2026-11-26)
+
+Asked for: Phase B of the video plan: per-clip in/out trim, and pad options for a random start spot and a beat-length loop.
+
+### What was built
+
+- **Trim** (clip inspector, videos only): a strip of 10 frames with in and out handles (drag, or arrow keys on a focused handle: 0.1 s, Shift 1 s, Home/End), a preview that loops the trimmed part and shows the frame under a dragged handle, a readout and **Reset**. At least 0.1 s stays.
+  - Stored on the clip in main (`ClipInfo.trim`, `setClipMeta { trim }`), saved in sets (`SetClip.trim`, optional; older sets load) and restored on open. A whole-clip range is stored as none.
+  - The output's `VideoClip` plays only the trimmed part: its `durationMs` is the trimmed length (so auto-play's step plan, its start spots and tempo sync all use it), offsets count from the in-point, a stop rewinds to the in-point, and loops jump from the out-point back.
+- **Pads** (More settings): **Start at** the beginning or a random spot, and **Beat loop** (¼ beat to 2 bars, off by default).
+  - A random spot is decided when the pad is pressed (or armed) if the clip is loaded, and the clip is cued there; otherwise when it fires. It leaves room for the loop, the retrigger unit or the For N beats length. Retrigger with a random start picks a new spot each time; a beat loop returns to the same spot every N beats, exactly on the beat grid from the start.
+  - Beat loop is off for One-shot (it would never end) and Retrigger (which already repeats); tempo-synced clips start at the top.
+  - Restart actions carry `startMs`; `ClipLayer.restart(startMs)` works for videos and animated images.
+- **Fix:** the global ← / → tempo-nudge shortcuts no longer take the arrow keys from slider widgets (needed for the trim handles).
+
+### Known limits
+
+- Looping a trimmed part, and each beat-loop jump, is a seek while playing. With software decoding that can hold the old frame for a frame or two on long-GOP files; the 2 s fixture shows no gap in the tests.
+- **Find missing clips** (relink) still drops collections, favorites and now trims of the clips it finds, as before.
+
+### Files
+
+- `src/shared/protocol.ts` (`ClipTrim`, guard), `src/shared/trim.ts` (editor math), `src/shared/pads.ts`, `src/shared/set.ts`, `src/main/library.ts`, `src/main/index.ts`.
+- `src/core/trigger/scheduler.ts` (pad start spots, cueing, beat loops), `src/renderer/output/media/videoClip.ts`, `mediaManager.ts`, `clipLayer.ts`, `main.ts`.
+- `src/renderer/control/TrimEditor.tsx`, `thumbStrip.ts`, `PlaybackPanel.tsx`, `PadEditor.tsx`, `useLibrary.ts`, `useSet.ts`, `useBeat.ts`, `control.css`.
+
+### Tests
+
+- Unit (`tests/unit/videoTrim.test.ts`, 12 tests): trim guard and request validation, editor clamping and storage, the library keeping trims for videos only and restoring them from a set, older pads loading, random spots within range and cued at press, beat loops returning to the same spot on the beat, one-shot and retrigger ignoring the loop, retrigger picking new spots, and tempo-synced, still and unloaded clips starting at the top.
+- End-to-end (`tests/e2e/video.spec.ts`, 6 tests): arrow keys set the trim (saved in main and in the set), playback loops only inside it and its length is the trimmed one, a pad beat loop restarts every half beat at the same spot and the picture stays inside that loop, the pad editor's options, and dragging a handle plus Reset.
+
+### Manual test script
+
+1. Select a video in the library. Drag the handles over the strip: the preview shows the frame under the handle, then loops the part between them.
+2. Press **▶ Play on Background**: only that part loops. Save the set, open it again: the trim is still there.
+3. Put the video on a pad, set mode **Toggle loop**, **Start at** a random spot and **Beat loop** 1 beat. Fire it: it stutters on one spot, on the beat. Fire again elsewhere: a new spot.
+4. Set the pad to **Retrigger** with a random start: each beat jumps to a new place.

@@ -56,6 +56,16 @@ export const QUANTIZE_LABELS: Record<Quantize, string> = {
 
 export type RetriggerUnit = 'beat' | 'bar'
 
+/** Where a pad's clip starts each time it fires (or retriggers, or loops back). */
+export type StartAt = 'start' | 'random'
+export const START_AT_LABELS: Record<StartAt, string> = {
+  start: 'The beginning',
+  random: 'A random spot',
+}
+
+/** Beat loop lengths: play this many beats at normal speed, then jump back. */
+export const LOOP_BEATS = [0.25, 0.5, 1, 2, 4, 8] as const
+
 /** What a pad plays: one clip, or a random clip from a folder (or the whole library). */
 export type PadSource =
   | { kind: 'clip'; clipId: string }
@@ -83,6 +93,10 @@ export interface PadConfig {
   layer: LayerId | 'auto'
   placement: Placement
   key: KeySettings
+  /** Where the clip starts (missing in older sets: the beginning). */
+  startAt?: StartAt
+  /** Loop this many beats from the start spot at normal speed (missing/null: off). */
+  loopBeats?: number | null
 }
 
 export const DEFAULT_PAD_CONFIG: Omit<PadConfig, 'source'> = {
@@ -96,6 +110,8 @@ export const DEFAULT_PAD_CONFIG: Omit<PadConfig, 'source'> = {
   layer: 'auto',
   placement: DEFAULT_PLACEMENT,
   key: DEFAULT_KEY,
+  startAt: 'start',
+  loopBeats: null,
 }
 
 /**
@@ -127,6 +143,8 @@ export interface PadSpec {
   layer: LayerId
   placement: Placement
   key: KeySettings
+  startAt?: StartAt
+  loopBeats?: number | null
 }
 
 /** When armed pads fire. */
@@ -194,9 +212,15 @@ export function isPadSource(v: unknown): v is PadSource {
   return v.kind === 'favorites'
 }
 
+export const isStartAt = (v: unknown): v is StartAt => v === 'start' || v === 'random'
+export const isLoopBeats = (v: unknown): v is number | null =>
+  v === null || (LOOP_BEATS as readonly unknown[]).includes(v)
+
 export function isPadSpec(v: unknown): v is PadSpec {
   return (
     isObj(v) &&
+    (v.startAt === undefined || isStartAt(v.startAt)) &&
+    (v.loopBeats === undefined || isLoopBeats(v.loopBeats)) &&
     isPadSource(v.source) &&
     PLAY_MODES.includes(v.mode as PlayMode) &&
     QUANTIZES.includes(v.quantize as Quantize) &&

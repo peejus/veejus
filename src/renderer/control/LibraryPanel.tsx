@@ -4,6 +4,7 @@ import type { ProbeResult } from './probe'
 import { bridge, request } from './bridge'
 import type { LibraryState } from './useLibrary'
 import { CLIP_DRAG_TYPE } from './PadGrid'
+import { useLibrarySize } from './useLibrarySize'
 
 const UNDO_MS = 10_000
 /** The "collection" value that means favorites. */
@@ -213,6 +214,7 @@ interface Props {
 }
 
 export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }: Props) {
+  const { ref: sizeRef, style: sizeStyle, expanded, toggleExpanded, gripProps } = useLibrarySize()
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -324,7 +326,10 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }
 
   return (
     <section
-      className={`panel library${dragging ? ' dragging' : ''}`}
+      ref={sizeRef}
+      style={sizeStyle}
+      data-testid="library"
+      className={`panel library${dragging ? ' dragging' : ''}${sizeStyle ? ' sized' : ''}`}
       onDragOver={(e) => {
         e.preventDefault()
         e.dataTransfer.dropEffect = 'copy'
@@ -335,6 +340,9 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }
       }}
       onDrop={onDrop}
     >
+      <div className="library-grip" {...gripProps}>
+        <span aria-hidden="true" />
+      </div>
       <div className="library-header">
         <h2 title="Click a clip to select it, double-click to play it now on the Background, drag it onto a pad to assign it">
           Library{' '}
@@ -353,6 +361,18 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }
           />
         )}
         <div className="row">
+          <button
+            className="subtle library-expand"
+            aria-pressed={expanded}
+            title={
+              expanded
+                ? 'Back to the normal size, under the pads and mixer'
+                : 'Make the library fill the column (the pads and mixer scroll up)'
+            }
+            onClick={toggleExpanded}
+          >
+            {expanded ? '⤡ Shrink' : '⤢ Expand'}
+          </button>
           <button
             onClick={() => runImport(request({ type: 'pickAndImport', mode: 'files' }, 'imported'))}
           >

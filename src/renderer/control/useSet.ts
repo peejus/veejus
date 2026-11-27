@@ -85,6 +85,7 @@ export function buildSet(src: SetSources): VeejusSet {
       relPath: null,
       tags: [...c.tags],
       favorite: c.favorite,
+      trim: c.trim ? { ...c.trim } : null,
     })),
     pads: src.pads,
     layers: src.layers,

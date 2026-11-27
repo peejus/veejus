@@ -3,8 +3,9 @@ import { DEFAULT_KEY, DEFAULT_PLACEMENT, LAYER_IDS, type LayerId } from '@shared
 import {
   AUTO_PAD_ID,
   DEFAULT_AUTO_PLAY,
-  autoStepBeats,
+  autoStepPlan,
   type AutoPlaySettings,
+  type AutoStepPlan,
   type AutoPlayStatus,
   type AutoSource,
 } from '@shared/autoplay'
@@ -47,6 +48,8 @@ export interface ClipSource {
   autoCandidates?(source: AutoSource): string[]
   /** Natural length of an animated clip or video, ms; null for a still or not loaded yet. */
   durationMs?(clipId: string): number | null
+  /** Seek a loaded clip that isn't showing to `startMs`, so it starts there without a stall. */
+  cue?(clipId: string, startMs: number): void
 }
 
 export type TriggerAction =
@@ -57,8 +60,16 @@ export type TriggerAction =
       clipId: string
       spec: PadSpec
       startPos: number
+      /** Where in the clip to start, ms (auto-play's long clips); 0 or missing: the start. */
+      startMs?: number
     }
-  | { type: 'restart'; layer: LayerId; padId: string }
+  | {
+      type: 'restart'
+      layer: LayerId
+      padId: string
+      /** Where in the clip to restart, ms; 0 or missing: the start. */
+      startMs?: number
+    }
   | { type: 'stop'; layer: LayerId; padId: string }
 
 /** A press this soon after a boundary still counts for that boundary (human timing). */
@@ -71,6 +82,8 @@ interface Pending {
   firePos: number
   /** 0..1 from pad velocity: scales the clip's opacity. */
   gain: number
+  /** Where the clip starts, ms, decided at press when its length was known (and cued). */
+  startMs: number | null
 }
 
 /** What a layer is showing for a pad. */
@@ -86,6 +99,15 @@ export interface Voice {
   nextRetriggerPos: number | null
   /** 0..1 from pad velocity: scales the clip's opacity. */
   gain: number
+  /** Where in the clip it started (and a beat loop jumps back to), ms. */
+  startMs: number
+}
+
+/** Beats a pad repeats on: its beat loop, else its retrigger unit (retrigger mode). */
+export function loopBeatsOf(spec: PadSpec): number | null {
+  // A one-shot would never end, and retrigger already repeats on its own grid.
+  if (spec.mode === 'oneShot' || spec.mode === 'retrigger') return null
+  return spec.loopBeats ?? null
 }
 
 const unitFor = (q: Exclude<Quantize, 'off'>): GridUnit => q
@@ -93,7 +115,10 @@ const unitFor = (q: Exclude<Quantize, 'off'>): GridUnit => q
 export class TriggerScheduler {
   settings: TriggerSettings = { ...DEFAULT_TRIGGER_SETTINGS }
   private readonly pending = new Map<string, Pending>()
-  private readonly armed = new Map<string, { spec: PadSpec; clipId: string | null }>()
+  private readonly armed = new Map<
+    string,
+    { spec: PadSpec; clipId: string | null; startMs: number | null }
+  >()
   private dropPos: number | null = null
   private readonly voices = new Map<LayerId, Voice>()
   private readonly lastPick = new Map<string, string>()
@@ -107,6 +132,10 @@ export class TriggerScheduler {
   /** Shuffle order still to play. */
   private autoDeck: string[] = []
   private autoYielding = false
+  /** Where the upcoming clip starts, ms, once decided (needs its length, so it's loaded). */
+  private autoNextStartMs: number | null = null
+  /** Where each clip carries on from, ms ('continue' start). */
+  private readonly autoResume = new Map<string, number>()
   /** Set when stopping everything (or the auto-play layer) switched auto-play off. */
   private autoInterrupted = false
   /** Bumped on every state change, so the UI can be told. */
@@ -154,6 +183,35 @@ export class TriggerScheduler {
     return clipId
   }
 
+  /**
+   * Where a pad's clip starts, ms: the beginning, or with 'random' a spot that leaves room for
+   * what plays before the next jump (beat loop, retrigger or 'beats' length). Null while the
+   * clip's length isn't known (not loaded). A tempo-synced clip always starts at the top.
+   */
+  private padStartMs(spec: PadSpec, clipId: string, clock: ClockView): number | null {
+    if (spec.startAt !== 'random' || spec.syncBeats !== null) return 0
+    const durationMs = this.clips.durationMs?.(clipId) ?? null
+    if (durationMs === null) return null
+    const windowBeats =
+      loopBeatsOf(spec) ??
+      (spec.mode === 'retrigger'
+        ? spec.retriggerEvery === 'bar'
+          ? BEATS_PER_BAR
+          : 1
+        : spec.mode === 'beats'
+          ? spec.lengthBeats
+          : 0)
+    const room = Math.floor(durationMs - windowBeats / clock.beatsPerMs)
+    return room > 0 ? Math.round(this.rand() * room) : 0
+  }
+
+  /** Decide a pad's start spot now if its clip is loaded, and cue the clip there. */
+  private padCue(spec: PadSpec, clipId: string, clock: ClockView): number | null {
+    const startMs = this.padStartMs(spec, clipId, clock)
+    if (startMs) this.clips.cue?.(clipId, startMs)
+    return startMs
+  }
+
   press(padId: string, spec: PadSpec, nowMs: number, clock: ClockView, gain = 1): void {
     const pos = clock.position(nowMs)
     const firePos = this.firePosition(pos, spec.quantize, clock)
@@ -174,13 +232,21 @@ export class TriggerScheduler {
       return
     }
     if (active && latches && active.endPos === null) {
-      this.pending.set(padId, { kind: 'stop', spec, clipId: active.clipId, firePos, gain })
+      this.pending.set(padId, {
+        kind: 'stop',
+        spec,
+        clipId: active.clipId,
+        firePos,
+        gain,
+        startMs: null,
+      })
       this.changed()
       return
     }
     const clipId = this.choose(padId, spec.source)
     if (!clipId) return
-    this.pending.set(padId, { kind: 'start', spec, clipId, firePos, gain })
+    const startMs = this.padCue(spec, clipId, clock)
+    this.pending.set(padId, { kind: 'start', spec, clipId, firePos, gain, startMs })
     this.changed()
   }
 
@@ -204,7 +270,7 @@ export class TriggerScheduler {
     }
     const clipId = this.choose(padId, spec.source)
     if (!clipId) return
-    this.armed.set(padId, { spec, clipId })
+    this.armed.set(padId, { spec, clipId, startMs: this.padCue(spec, clipId, clock) })
     if (this.dropPos === null) this.dropPos = this.dropTarget(nowMs, clock)
     this.changed()
   }
@@ -297,6 +363,7 @@ export class TriggerScheduler {
       stopOn(was.layer)
       this.autoNextPos = null
       this.autoNext = null
+      this.autoNextStartMs = null
       this.autoYielding = false
     } else {
       if (was.layer !== settings.layer) stopOn(was.layer)
@@ -304,11 +371,16 @@ export class TriggerScheduler {
       if (!was.enabled || sourceChanged || was.order !== settings.order) {
         this.autoDeck = []
         this.autoNext = null
+        this.autoNextStartMs = null
       }
       // Switching on (or moving layers) shows the first clip on the next beat.
       if (!was.enabled || was.layer !== settings.layer || this.autoNextPos === null)
         this.autoNextPos = this.firePosition(clock.position(nowMs), 'beat', clock)
-      this.autoNext ??= this.autoPick()
+      if (this.autoNext === null) {
+        this.autoNext = this.autoPick()
+        this.autoNextStartMs = null
+      }
+      this.autoCueNext(clock)
     }
     this.changed()
     return actions
@@ -326,6 +398,7 @@ export class TriggerScheduler {
     this.auto = { ...this.auto, enabled: false }
     this.autoNextPos = null
     this.autoNext = null
+    this.autoNextStartMs = null
     this.autoYielding = false
     this.autoInterrupted = true
   }
@@ -357,25 +430,56 @@ export class TriggerScheduler {
     return id
   }
 
-  /** Beats the clip stays up for. */
-  private autoBeats(clipId: string, clock: ClockView): number {
+  /** How long the clip stays up, and whether it's stretched to fit. */
+  private autoPlan(clipId: string, clock: ClockView): AutoStepPlan {
     const step = this.auto.step
-    if (step !== 'auto') return step
-    return autoStepBeats(this.clips.durationMs?.(clipId) ?? null, clock.beatsPerMs * 60000)
+    if (step !== 'auto') return { beats: step, syncBeats: null }
+    return autoStepPlan(
+      this.clips.durationMs?.(clipId) ?? null,
+      clock.beatsPerMs * 60000,
+      this.auto.longBeats ?? 16,
+    )
   }
 
-  private autoSpec(clipId: string, beats: number): PadSpec {
-    // With the 'auto' step an animated clip plays through exactly once per step.
-    const animated = (this.clips.durationMs?.(clipId) ?? null) !== null
+  /**
+   * Where in the clip to start, ms, for a clip that plays at normal speed and is longer than
+   * its step: the beginning, a random spot, or where it left off ('videoStart'). Null while its
+   * length isn't known yet (not loaded).
+   */
+  private autoStartMs(clipId: string, clock: ClockView): number | null {
+    const durationMs = this.clips.durationMs?.(clipId) ?? null
+    if (durationMs === null) return null
+    const plan = this.autoPlan(clipId, clock)
+    const shownMs = plan.beats / clock.beatsPerMs
+    const mode = this.auto.videoStart ?? 'start'
+    if (plan.syncBeats !== null || mode === 'start' || durationMs <= shownMs) return 0
+    // Whole milliseconds (a cue and its start must match exactly).
+    const room = Math.floor(durationMs - shownMs)
+    if (mode === 'random') return Math.round(this.rand() * room)
+    const from = this.autoResume.get(clipId) ?? 0
+    return from <= room ? from : 0
+  }
+
+  /** Decide where the upcoming clip starts as soon as its length is known, and cue it there. */
+  private autoCueNext(clock: ClockView): void {
+    if (this.autoNext === null || this.autoNextStartMs !== null) return
+    const startMs = this.autoStartMs(this.autoNext, clock)
+    if (startMs === null) return
+    this.autoNextStartMs = startMs
+    if (startMs > 0) this.clips.cue?.(this.autoNext, startMs)
+  }
+
+  private autoSpec(clipId: string, plan: AutoStepPlan): PadSpec {
     return {
       source: { kind: 'clip', clipId },
       mode: 'toggle',
       quantize: 'beat',
-      lengthBeats: beats,
+      lengthBeats: plan.beats,
       retriggerEvery: 'beat',
       fadeInBeats: 0,
       fadeOutBeats: 0,
-      syncBeats: this.auto.step === 'auto' && animated ? beats : null,
+      // With the 'auto' step a short clip plays through exactly once (or loops within a beat).
+      syncBeats: plan.syncBeats,
       layer: this.auto.layer,
       placement: { ...DEFAULT_PLACEMENT, fit: this.auto.fit },
       key: DEFAULT_KEY,
@@ -417,7 +521,16 @@ export class TriggerScheduler {
     const due = (target: number) => pos >= target - (clock.beatsPerMs * frameMs) / 2
     const actions: TriggerAction[] = []
 
-    const start = (padId: string, spec: PadSpec, clipId: string, startPos: number, gain = 1) => {
+    const start = (
+      padId: string,
+      spec: PadSpec,
+      clipId: string,
+      startPos: number,
+      gain = 1,
+      decided: number | null = null,
+    ) => {
+      const startMs = decided ?? this.padStartMs(spec, clipId, clock) ?? 0
+      const loop = loopBeatsOf(spec)
       // A pad moving layers leaves its old one.
       const previous = this.voiceOf(padId)
       if (previous && previous[0] !== spec.layer) {
@@ -432,16 +545,27 @@ export class TriggerScheduler {
         endPos: spec.mode === 'beats' ? startPos + spec.lengthBeats : null,
         fadeFromPos: null,
         nextRetriggerPos:
-          spec.mode === 'retrigger'
-            ? clock.boundaryAfter(startPos + 1e-6, spec.retriggerEvery)
-            : null,
+          loop !== null
+            ? startPos + loop
+            : spec.mode === 'retrigger'
+              ? clock.boundaryAfter(startPos + 1e-6, spec.retriggerEvery)
+              : null,
         gain,
+        startMs,
       }
       if (v.endPos !== null && spec.fadeOutBeats > 0) {
         v.fadeFromPos = Math.max(startPos, v.endPos - spec.fadeOutBeats)
       }
       this.voices.set(spec.layer, v)
-      actions.push({ type: 'start', layer: spec.layer, padId, clipId, spec, startPos })
+      actions.push({
+        type: 'start',
+        layer: spec.layer,
+        padId,
+        clipId,
+        spec,
+        startPos,
+        ...(startMs > 0 ? { startMs } : {}),
+      })
       this.changed()
     }
 
@@ -451,7 +575,7 @@ export class TriggerScheduler {
       for (const [padId, a] of this.armed) {
         if (a.clipId) {
           this.pending.delete(padId)
-          start(padId, a.spec, a.clipId, at)
+          start(padId, a.spec, a.clipId, at, 1, a.startMs)
         }
       }
       this.armed.clear()
@@ -463,7 +587,7 @@ export class TriggerScheduler {
       if (!due(p.firePos)) continue
       this.pending.delete(padId)
       if (p.kind === 'start' && p.clipId)
-        start(padId, p.spec, p.clipId, Math.max(p.firePos, pos), p.gain)
+        start(padId, p.spec, p.clipId, Math.max(p.firePos, pos), p.gain, p.startMs)
       else if (p.kind === 'stop') {
         const found = this.voiceOf(padId)
         if (found) this.beginStop(found[1], pos)
@@ -479,8 +603,21 @@ export class TriggerScheduler {
         this.voices.delete(layer)
         this.changed()
       } else if (v.nextRetriggerPos !== null && due(v.nextRetriggerPos)) {
-        actions.push({ type: 'restart', layer, padId: v.padId })
-        v.nextRetriggerPos = clock.boundaryAfter(v.nextRetriggerPos + 1e-6, v.spec.retriggerEvery)
+        const loop = loopBeatsOf(v.spec)
+        if (loop !== null) {
+          // Beat loop: back to the same spot, exactly `loop` beats on.
+          v.nextRetriggerPos += loop
+        } else {
+          // Retrigger: a new spot each time with a random start.
+          if (v.spec.startAt === 'random') v.startMs = this.padStartMs(v.spec, v.clipId, clock) ?? 0
+          v.nextRetriggerPos = clock.boundaryAfter(v.nextRetriggerPos + 1e-6, v.spec.retriggerEvery)
+        }
+        actions.push({
+          type: 'restart',
+          layer,
+          padId: v.padId,
+          ...(v.startMs > 0 ? { startMs: v.startMs } : {}),
+        })
       }
     }
     // Auto-play last, so a pad that ended on this frame hands its layer straight back.
@@ -499,26 +636,37 @@ export class TriggerScheduler {
       } else {
         this.autoYielding = false
         const list = this.clips.autoCandidates?.(this.auto.source) ?? []
-        const clipId =
-          this.autoNext !== null && list.includes(this.autoNext) ? this.autoNext : this.autoPick()
+        const keep = this.autoNext !== null && list.includes(this.autoNext)
+        const clipId = keep ? this.autoNext : this.autoPick()
         if (clipId) {
-          const beats = this.autoBeats(clipId, clock)
+          const plan = this.autoPlan(clipId, clock)
+          const startMs =
+            (keep ? this.autoNextStartMs : null) ?? this.autoStartMs(clipId, clock) ?? 0
           // A clock that jumped ahead (or a long frame) shouldn't leave the grid behind.
           const startPos = pos - at > 1 ? clock.boundaryAtOrBefore(pos, 'beat') : at
           // The same still again (a one-clip source) just stays up; anything else restarts.
           const still = (this.clips.durationMs?.(clipId) ?? null) === null
-          if (!(still && occupant?.padId === AUTO_PAD_ID && occupant.clipId === clipId))
-            start(AUTO_PAD_ID, this.autoSpec(clipId, beats), clipId, startPos)
+          if (!(still && occupant?.padId === AUTO_PAD_ID && occupant.clipId === clipId)) {
+            start(AUTO_PAD_ID, this.autoSpec(clipId, plan), clipId, startPos, 1, startMs)
+          }
+          if (plan.syncBeats === null)
+            this.autoResume.set(clipId, Math.round(startMs + plan.beats / clock.beatsPerMs))
           this.autoLast = clipId
-          this.autoNextPos = this.autoAfter(startPos, beats, clock)
+          this.autoNextPos = this.autoAfter(startPos, plan.beats, clock)
           this.autoNext = this.autoPick(clipId)
+          this.autoNextStartMs = null
+          this.autoCueNext(clock)
         } else {
           // Nothing to show yet (no clips, or they failed): look again on the next beat.
           this.autoNext = null
+          this.autoNextStartMs = null
           this.autoNextPos = nextBeat()
         }
       }
       this.changed()
+    } else if (this.auto.enabled) {
+      // The upcoming clip finished loading: decide where it starts and cue it there.
+      this.autoCueNext(clock)
     }
     return actions
   }

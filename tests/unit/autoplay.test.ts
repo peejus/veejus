@@ -5,6 +5,7 @@ import {
   AUTO_PAD_ID,
   DEFAULT_AUTO_PLAY,
   autoStepBeats,
+  autoStepPlan,
   isAutoPlaySettings,
   type AutoPlaySettings,
   type AutoSource,
@@ -23,13 +24,16 @@ function harness(bpm = 120, clips: Record<string, number | null> = CLIPS) {
   const clock = new BeatClock(0, bpm, 8)
   const lib = { ...clips }
   const prepared: string[] = []
+  const cued: { id: string; startMs: number }[] = []
   let r = 0
   const sched = new TriggerScheduler(
     {
       candidates: (s) => (s.kind === 'clip' ? [s.clipId] : []),
       prepare: (id) => prepared.push(id),
-      autoCandidates: (s: AutoSource) => (s.kind === 'images' ? Object.keys(lib) : []),
+      autoCandidates: (s: AutoSource) =>
+        s.kind === 'images' || s.kind === 'all' ? Object.keys(lib) : [],
       durationMs: (id) => lib[id] ?? null,
+      cue: (id, startMs) => cued.push({ id, startMs }),
     },
     // Deterministic "random" for shuffle.
     () => ((r = (r * 7 + 3) % 11), r / 11),
@@ -48,7 +52,7 @@ function harness(bpm = 120, clips: Record<string, number | null> = CLIPS) {
   }
   const play = (over: Partial<AutoPlaySettings> = {}) =>
     sched.setAutoPlay({ ...DEFAULT_AUTO_PLAY, enabled: true, ...over }, now, clock)
-  return { clock, sched, log, runTo, at, play, prepared, lib, now: () => now }
+  return { clock, sched, log, runTo, at, play, prepared, cued, lib, now: () => now }
 }
 
 const autoStarts = (log: { atMs: number; action: TriggerAction }[]) =>
@@ -64,7 +68,92 @@ describe('auto step lengths', () => {
     expect(autoStepBeats(1400, 120)).toBe(2) // 2.8 beats: closer to 2 than 4 on a log scale
     expect(autoStepBeats(1600, 120)).toBe(4) // 3.2 beats
     expect(autoStepBeats(200, 120)).toBe(1) // shorter than a beat: one beat
-    expect(autoStepBeats(60000, 120)).toBe(16) // long ones cap at 4 bars
+    expect(autoStepBeats(11000, 120)).toBe(16) // 22 beats: still within √2 of 16
+  })
+
+  it('stretches by at most √2; longer videos play at normal speed, shorter clips loop', () => {
+    expect(autoStepPlan(null, 120)).toEqual({ beats: 4, syncBeats: null })
+    expect(autoStepPlan(1000, 120)).toEqual({ beats: 2, syncBeats: 2 })
+    // A 60 s video at 120 BPM is 120 beats: it used to be squeezed into 16 beats (7.5×).
+    expect(autoStepPlan(60000, 120)).toEqual({ beats: 16, syncBeats: null })
+    expect(autoStepPlan(60000, 120, 8)).toEqual({ beats: 8, syncBeats: null })
+    expect(autoStepPlan(12000, 120, 32)).toEqual({ beats: 32, syncBeats: null }) // 24 beats
+    // Shorter than a beat: loops 2 or 4 times within it, stretched a little.
+    expect(autoStepPlan(250, 120)).toEqual({ beats: 1, syncBeats: 0.5 })
+    expect(autoStepPlan(130, 120)).toEqual({ beats: 1, syncBeats: 0.25 })
+    expect(autoStepPlan(400, 120)).toEqual({ beats: 1, syncBeats: 1 })
+    for (let ms = 100; ms < 11300; ms += 37) {
+      const p = autoStepPlan(ms, 120)
+      if (p.syncBeats === null) continue
+      const stretch = (p.syncBeats * 500) / ms
+      expect(stretch).toBeLessThanOrEqual(Math.SQRT2 + 1e-9)
+      expect(stretch).toBeGreaterThanOrEqual(Math.SQRT1_2 - 1e-9)
+    }
+  })
+})
+
+describe('auto-play with videos', () => {
+  const VIDS = { v1: 60000, v2: 30000 }
+
+  it('plays a long video at normal speed for the long-video length, from a random spot', () => {
+    const h = harness(120, VIDS)
+    h.play({ longBeats: 8, videoStart: 'random' })
+    h.runTo(20000)
+    const s = autoStarts(h.log)
+    expect(s.length).toBeGreaterThanOrEqual(4)
+    for (const x of s) {
+      expect(x.action.spec.syncBeats).toBeNull()
+      expect(x.action.spec.lengthBeats).toBe(8)
+      const room = VIDS[x.action.clipId as keyof typeof VIDS] - 8 * 500
+      expect(x.action.startMs).toBeGreaterThan(0)
+      expect(x.action.startMs).toBeLessThanOrEqual(room)
+    }
+    // Two bars each (4000 ms).
+    const gaps = s.slice(2).map((x, i) => x.atMs - s[i + 1]!.atMs)
+    for (const g of gaps) expect(Math.abs(g - 4000)).toBeLessThanOrEqual(FRAME)
+    // Every start after the first was cued ahead of time at the same spot.
+    for (const x of s.slice(1)) {
+      const cue = h.cued.find((c) => c.id === x.action.clipId && c.startMs === x.action.startMs)
+      expect(cue).toBeDefined()
+    }
+  })
+
+  it('carries on where it left off, wrapping to the start near the end', () => {
+    const h = harness(120, { v: 10000 })
+    h.play({ step: 4, videoStart: 'continue' })
+    h.runTo(13000)
+    // A one-clip source: each bar picks it up 2000 ms further on, then wraps.
+    const starts = autoStarts(h.log).map((x) => x.action.startMs ?? 0)
+    expect(starts.slice(0, 6)).toEqual([0, 2000, 4000, 6000, 8000, 0])
+  })
+
+  it('starts at the beginning when asked, and whenever a clip plays through (stretched)', () => {
+    const h = harness(120, VIDS)
+    h.play({ step: 4, videoStart: 'start' })
+    h.runTo(6000)
+    expect(autoStarts(h.log).every((x) => !x.action.startMs)).toBe(true)
+    expect(h.cued).toEqual([])
+
+    const k = harness(120, { short: 3000, still: null })
+    k.play({ videoStart: 'random' })
+    k.runTo(8000)
+    const s = autoStarts(k.log)
+    expect(s.some((x) => x.action.clipId === 'short')).toBe(true)
+    // Synced to 8 beats, so it plays once from the top.
+    for (const x of s) expect(x.action.startMs ?? 0).toBe(0)
+  })
+
+  it('cues the next video once it has loaded (its length becomes known)', () => {
+    const h = harness(120, { s1: null, v1: null })
+    h.play({ step: 4, videoStart: 'random' })
+    h.runTo(500)
+    expect(h.cued).toEqual([])
+    h.lib.v1 = 20000 // finished loading
+    h.runTo(600)
+    expect(h.cued.map((c) => c.id)).toEqual(['v1'])
+    h.runTo(2600)
+    const v = autoStarts(h.log).find((x) => x.action.clipId === 'v1')!
+    expect(v.action.startMs).toBe(h.cued[0]!.startMs)
   })
 })
 
@@ -203,9 +292,13 @@ describe('auto-play settings in sets', () => {
     expect(isAutoPlaySettings(DEFAULT_AUTO_PLAY)).toBe(true)
     expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, photoFx: 'mix' })).toBe(true)
     expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, photoFx: 'sparkle' })).toBe(false)
-    // Settings saved before photo effects existed still load.
+    expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, source: { kind: 'videos' } })).toBe(true)
+    expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, videoStart: 'middle' })).toBe(false)
+    expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, longBeats: 12 })).toBe(false)
+    expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, photoFxOn: 'gifs' })).toBe(false)
+    // Settings saved before photo effects and video options existed still load.
     const older: Record<string, unknown> = { ...DEFAULT_AUTO_PLAY }
-    delete older.photoFx
+    for (const k of ['photoFx', 'photoFxOn', 'videoStart', 'longBeats']) delete older[k]
     expect(isAutoPlaySettings(older)).toBe(true)
     expect(isAutoPlaySettings({ ...DEFAULT_AUTO_PLAY, step: 3 })).toBe(false)
     expect(

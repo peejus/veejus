@@ -164,14 +164,19 @@ export function App() {
   /** Import, then start auto-play on what was added. */
   const importAndPlay = (p: Promise<{ result: ImportResult }>) => {
     setError(null)
+    const wasEmpty = library.clips.length === 0
     p.then(({ result }) => {
       if (result.added === 0 && result.skipped === 0) return // picker canceled
       setNotice(importSummary(result))
       if (result.added === 0) return
-      // A collection or favorites wouldn't include what was just added.
+      // A collection, favorites or one kind (when starting from an empty library) might not
+      // include what was just added.
+      const kind = auto.settings.source.kind
       const narrow =
-        auto.settings.source.kind === 'collection' || auto.settings.source.kind === 'favorites'
-      auto.set({ enabled: true, ...(narrow ? { source: { kind: 'images' } } : {}) })
+        kind === 'collection' ||
+        kind === 'favorites' ||
+        (wasEmpty && (kind === 'images' || kind === 'videos'))
+      auto.set({ enabled: true, ...(narrow ? { source: { kind: 'all' } } : {}) })
       showOutputIfHidden()
     }).catch((e: Error) => setError(e.message))
   }
@@ -576,7 +581,14 @@ export function App() {
         />
       </div>
 
-      {keys.open && <ShortcutSheet onClose={() => keys.setOpen(false)} />}
+      {keys.open && (
+        <ShortcutSheet
+          onClose={() => keys.setOpen(false)}
+          pads={pads}
+          clips={library.clips}
+          bindings={midi.settings.bindings}
+        />
+      )}
       {error && (
         <div className="error-banner" role="alert">
           {error}

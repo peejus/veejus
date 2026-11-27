@@ -42,7 +42,7 @@ async function clipNames(): Promise<Map<string, string>> {
 test('an empty library offers a one-click start, which goes once clips are in', async () => {
   const card = h.control.getByTestId('quick-start')
   await expect(card).toBeVisible()
-  await expect(card.getByRole('button', { name: 'Choose images & GIFs…' })).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Choose images, GIFs & videos…' })).toBeVisible()
   await expect(button()).toHaveAttribute('aria-pressed', 'false')
 
   await importPaths(h.control, [join(FIXTURES, 'media')])
@@ -53,6 +53,10 @@ test('an empty library offers a one-click start, which goes once clips are in', 
 })
 
 test('one button steps through the images and GIFs on the beat', async () => {
+  // Everything is the default source; pick Images & GIFs for this one.
+  await h.control.getByRole('button', { name: 'Auto-play settings' }).click()
+  await h.control.getByTestId('auto-panel').getByLabel('Auto-play source').selectOption('images')
+  await h.control.getByRole('button', { name: 'Auto-play settings' }).click()
   await button().click()
   await expect(button()).toHaveAttribute('aria-pressed', 'true')
   // Five steps or so (stills hold a bar = 2 s; GIFs their own length).
@@ -91,6 +95,7 @@ test('the settings panel shows what is up and next, and the step can change', as
     .toBe(true)
   await expect(h.control.getByTestId('auto-next')).toContainText(/in \d beats?/)
 
+  await expect(panel.getByLabel('Auto-play source')).toContainText('Videos (')
   await panel.getByLabel('Auto-play step').selectOption('1')
   const before = (await autoStarts()).length
   await expect
@@ -124,4 +129,57 @@ test('P toggles it, and Esc (stop everything) switches it off too', async () => 
   const s = await readOutput(h.output)
   expect(s.trigger.state.auto.enabled).toBe(false)
   expect(s.layers.background.clipId).toBeNull()
+})
+
+test('videos play at normal speed from a random spot, cued ahead, on the beat', async () => {
+  const names = await clipNames()
+  const videoIds = [...names].filter(([, n]) => n === 'countdown.mp4' || n === 'alpha-ball.webm')
+  expect(videoIds.length).toBe(2)
+  const panel = h.control.getByTestId('auto-panel')
+  if (!(await panel.isVisible()))
+    await h.control.getByRole('button', { name: 'Auto-play settings' }).click()
+  await expect(panel).toBeVisible()
+  await panel.getByLabel('Auto-play source').selectOption('videos')
+  // One beat each (500 ms) of 2 s videos: each starts somewhere in its first 1.5 s.
+  await panel.getByLabel('Auto-play step').selectOption('1')
+  await panel.getByLabel('Auto-play video start').selectOption('random')
+  const before = (await autoStarts()).length
+  await button().click()
+  await expect(button()).toHaveAttribute('aria-pressed', 'true')
+
+  // Watch the layer: once a video is up, it plays at 1× near where it was asked to start.
+  const seen: { startMs: number; videoTime: number; rate: number | null }[] = []
+  await expect
+    .poll(
+      async () => {
+        const out = await readOutput(h.output)
+        const last = out.trigger.recentActions.filter((a) => a.padId === 'auto').at(-1)
+        const bg = out.layers.background
+        if (last?.type === 'start' && bg.clipId === last.clipId && bg.videoTime !== null)
+          seen.push({ startMs: last.startMs ?? 0, videoTime: bg.videoTime, rate: bg.playbackRate })
+        return (await autoStarts()).length - before
+      },
+      { timeout: 10_000, intervals: [70] },
+    )
+    .toBeGreaterThan(5)
+  expect(seen.length).toBeGreaterThan(8)
+  for (const x of seen) {
+    expect(x.rate).toBe(1)
+    // Within a beat (500 ms) of the start spot; the frames are a beat long.
+    expect(x.videoTime * 1000).toBeGreaterThanOrEqual(x.startMs - 50)
+    expect(x.videoTime * 1000).toBeLessThan(x.startMs + 600)
+  }
+  const starts = (await autoStarts()).slice(before)
+  expect(starts.length).toBeGreaterThan(3)
+  for (const a of starts) {
+    expect(videoIds.map(([id]) => id)).toContain(a.clipId)
+    expect(a.syncBeats).toBeNull()
+    expect(a.startMs ?? 0).toBeLessThanOrEqual(1500)
+    expect(Math.abs(a.startPos! - Math.round(a.startPos!))).toBeLessThan(1e-6)
+    expect(Math.abs(a.posAtFire - a.startPos!)).toBeLessThan((2 * 1000) / 60 / 1000 + 0.02)
+  }
+  // Random spots, not all from the top.
+  expect(starts.filter((a) => (a.startMs ?? 0) > 0).length).toBeGreaterThan(starts.length / 2)
+  await button().click()
+  await expect(button()).toHaveAttribute('aria-pressed', 'false')
 })

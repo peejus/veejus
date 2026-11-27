@@ -11,6 +11,7 @@ import {
   type Display,
   type IpcMainEvent,
 } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   Channel,
@@ -292,7 +293,12 @@ async function loadSet(
     else missing.push(clip)
   }
   const ids = await library.load(
-    found.map(({ clip, path }) => ({ path, tags: clip.tags, favorite: clip.favorite })),
+    found.map(({ clip, path }) => ({
+      path,
+      tags: clip.tags,
+      favorite: clip.favorite,
+      trim: clip.trim ?? null,
+    })),
   )
   const idMap: Record<string, string> = {}
   for (const { clip, path } of found) {
@@ -553,6 +559,10 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  // A packaged app takes its icon from the bundle; in dev, show it in the Dock instead of Electron's.
+  const devIcon = join(app.getAppPath(), 'build/icon.png')
+  if (process.platform === 'darwin' && !app.isPackaged && existsSync(devIcon))
+    app.dock?.setIcon(devIcon)
   handleMediaProtocol(library)
   registerMediaPermissions()
   registerIpc()

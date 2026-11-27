@@ -8,7 +8,7 @@ The build follows the phased plan in [VEEJUS_AGENT_PROMPT.md](VEEJUS_AGENT_PROMP
 
 ## Requirements
 
-- Node.js 20.11+ (developed on Node 24)
+- Node.js 20.19+ or 22.12+ (developed on Node 24; `nvm use` picks 22 from `.nvmrc`)
 - Windows 10/11, or macOS 13 (Ventura) or later on Apple silicon or Intel
 - ffmpeg, only for regenerating test fixtures (`winget install Gyan.FFmpeg`, or `brew install ffmpeg` on a Mac)
 
@@ -61,10 +61,12 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 ## Using it
 
 - **Quick start (auto-play):** the fastest way to get visuals on the beat.
-  - **Empty library:** a **Start a show in one click** card offers **Choose images & GIFs…** and **Choose a folder…** (or drop files on it). Once they're in, auto-play starts and the output window opens.
-  - **▶ Auto-play** in the top bar (or **P**) turns it on and off. It steps through your images and GIFs on the beat, one after another, with no pads needed. A small number on the button counts the beats to the next change.
-  - **▾** next to it opens the settings: what it plays (images & GIFs, everything, favorites or a collection), how often it changes (**Auto**, or every beat up to every 4 bars), in order or shuffled, how the picture fills the screen, and which layer it uses. **Auto** holds stills for a bar and lets each GIF play through once, stretched slightly so the change lands on the beat (1, 2, 4, 8 or 16 beats). Changes of a bar or longer land on bar lines.
-  - **Photo effect:** the settings can also move still photos with the beat: **Pulse**, **Fold**, **Bounce**, **Pixel spin**, **Wave**, **Slice**, **Twirl**, **Mystify lines**, or **Mix** (a different one for each photo). GIFs and videos play as they are.
+  - **Empty library:** a **Start a show in one click** card offers **Choose images, GIFs & videos…** and **Choose a folder…** (or drop files on it). Once they're in, auto-play starts and the output window opens.
+  - **▶ Auto-play** in the top bar (or **P**) turns it on and off. It steps through your clips on the beat, one after another, with no pads needed. A small number on the button counts the beats to the next change.
+  - **▾** next to it opens the settings: what it plays (everything, images & GIFs, videos, favorites or a collection), how often it changes (**Auto**, or every beat up to every 4 bars), in order or shuffled, how the picture fills the screen, and which layer it uses. Changes of a bar or longer land on bar lines.
+  - **Auto** holds stills for a bar. A GIF or short video plays through once, stretched slightly (never more than about 1.4×) so the change lands on the beat (1, 2, 4, 8 or 16 beats). A clip shorter than a beat loops within it. A longer video plays at normal speed for **Long videos** (1–8 bars, 2 by default).
+  - **Videos start at:** where a video longer than its turn starts each time: **a random spot** (the default), **where it left off**, or **the beginning**. The next video is cued at its spot while the current one plays, so the change still lands on the beat.
+  - **Beat effect:** the settings can also move the picture with the beat: **Pulse**, **Fold**, **Bounce**, **Pixel spin**, **Wave**, **Slice**, **Twirl**, **Mystify lines**, or **Mix** (a different one for each clip). **Effect on** picks what gets it: still photos (the default), photos and videos, or everything (GIFs too).
   - **Pads still work on top:** a pad fired on the same layer takes over until it ends, then auto-play carries on. **Esc** (stop everything) switches auto-play off too.
   - **Tempo:** auto-play follows the clock: tap **Space** on the beat, type a BPM, or turn on audio so it follows the music.
 - **Sets:** the set name in the top bar opens **New / Open… / Save / Save as… / Recent sets** (Ctrl+O, Ctrl+S, Ctrl+Shift+S). A dot means unsaved changes.
@@ -88,7 +90,8 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
   - **Load:** drag library clips onto the 4×8 pad grid (4 banks), or click **Auto-fill**.
   - **Fire:** keys `1–8`, `Q–I`, `A–K`, `Z–,` fire pads on the next beat, bar or phrase (global **Quantize**, with a per-pad override).
   - **Read a pad at a glance:** the corner icon is its mode (▶ one-shot, ⏱N for N beats, ✋ while held, ⟳ toggle loop, ↻ retrigger, ⚄ random clip). The colored left edge is the layer it plays on, in the same color as that layer's mixer strip. Hover for the details in words.
-  - **Edit:** right-click a pad (or hover it and press ✎) to edit it in the context panel. The basics are up front: clip (or a random clip from a folder), play mode, layer, position. **More settings** holds quantize, fades, tempo sync, offsets, rotation, entrance and keying, and its title lists any you've changed.
+  - **Edit:** right-click a pad (or hover it and press ✎) to edit it in the context panel. The basics are up front: clip (or a random clip from a folder), play mode, layer, position. **More settings** holds quantize, fades, tempo sync, start spot, beat loop, offsets, rotation, entrance and keying, and its title lists any you've changed.
+  - **Videos on pads:** **Start at** a random spot picks a new place in the clip each time the pad fires (and on each retrigger), leaving room for what plays before the next jump. **Beat loop** (¼ beat to 2 bars) plays that many beats at normal speed and jumps back to where it started, for stutters and held loops; it works with For N beats, While held and Toggle loop. A tempo-synced clip always starts at the top.
   - **Drop:** **Shift+key** (or Shift+click) arms a pad. The **DROP in N bars** banner counts down, and its **Lands** menu picks when: next phrase, or in 1–8 bars. Changing it retargets the armed drop.
   - **Banks and stop:** **F1–F4** switch banks; **Esc** stops everything.
   - **All shortcuts:** press **?** (or the **?** button in the top bar) for the keyboard sheet. While it's open, Esc closes the sheet instead of stopping the show.
@@ -112,6 +115,7 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 
   - **Sliders:** double-click resets to the default, **Shift-drag** fine-tunes at a tenth of the speed, and clicking the number lets you type a value. This also works on the mixer faders.
 - **Library:** drop clips or folders onto the library, or use **Add files…** / **Add folder…**. Supported: MP4, WebM (including alpha), MOV (H.264), GIF, animated WebP, APNG, PNG, JPEG. **Collections and favorites:** select a clip to star it or add it to collections ("Air Horns", "Drops"…); filter the library by them, and point a pad at **Random from collection** or **Random from ★ favorites**. **Search** by name or folder, and filter by type: Video, GIF / animated, Stills or Broken. **Remove N broken** clears unplayable clips in one go, with Undo. Each tile shows its name on the thumbnail, and **▣ N** shows how many pads use it; removing a clip that pads use asks first. Hover a clip for a live preview. A click only **selects** it, so browsing never changes the show. To show it on the Background layer right away (unquantized), use the **▶ Play** button on the selected clip, or double-click it. **Clear library…** asks first and offers **Undo** for 10 seconds. The dot on each pad shows whether the output has the clip loaded (green ready, amber loading, grey not loaded yet, red error).
+- **Trim:** selecting a video shows a strip of its frames with two handles. Drag them (or focus one and use the arrow keys: 0.1 s, Shift 1 s) to choose the part that plays; the preview above loops it. Pads, auto-play, tempo sync and library plays all use only that part, and the trim is saved with the set. **Reset** plays the whole clip again.
 - **Library plays:** selecting a library clip shows it in the context panel with **▶ Play on Background**, **Stop**, and how library plays look: loop or one-shot, speed (0.25×–4×), and fit (contain, cover, stretch, original size). Changes apply live. **Stop** clears the layer.
 - **Tempo:** the BPM is detected from the audio and the beat lights follow the kicks. **Space** taps tempo, **Enter** marks "now is beat 1", **← / →** nudge the grid 10 ms. You can also type a BPM, use ×2 / ÷2, or lock the tempo. **⚙ Setup → Clock** has phase correction, a latency offset (raise it if the visuals land after the kick you hear), phrase length and tempo range. If no audio input is selected, the tempo panel says so and opens **⚙ Setup → Audio**. The output's debug overlay (off by default, because the audience sees it; turn it on under **⚙ Setup → Diagnostics**) shows a 4-light metronome.
 - **MIDI controllers:**

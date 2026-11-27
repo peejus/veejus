@@ -23,6 +23,8 @@ export interface PlayOptions {
   loop?: boolean | null
   placement?: Placement | null
   key?: KeySettings | null
+  /** Where in the clip to start, ms (0: the beginning). */
+  startMs?: number
 }
 
 /** Per-frame compositing inputs for this layer. */
@@ -106,16 +108,15 @@ export class ClipLayer {
     this.end('stopped')
   }
 
-  /** Jump back to the first frame (retrigger). */
-  restart(): void {
+  /** Jump back to `startMs` (retrigger, beat loop; 0: the first frame). */
+  restart(startMs = 0): void {
     const p = this.playing
     if (!p) return
     if (p.clip.kind === 'video') {
-      p.clip.el.currentTime = 0
-      p.clip.hasNewFrame = true
-      if (p.clip.el.paused && !this.paused) void p.clip.el.play().catch(() => {})
+      p.clip.restart(startMs, !this.paused)
     } else {
-      p.elapsedMs = 0
+      const totalMs = p.clip.timeline.totalMs
+      p.elapsedMs = totalMs > 0 ? startMs % totalMs : 0
       p.uploadedFrame = -1
     }
   }
@@ -147,17 +148,21 @@ export class ClipLayer {
   }
 
   private begin(id: string, clip: LoadedClip, frameNumber: number, o: PlayOptions): void {
-    this.end('replaced')
+    const startMs = Math.max(0, o.startMs ?? 0)
+    // The same video again from elsewhere: skip the rewind, start() seeks once.
+    this.end('replaced', !(clip.kind === 'video' && this.playing?.clip === clip && startMs > 0))
     this.media.pin(id)
     const loop = o.loop ?? null
     if (clip.kind === 'video') {
-      clip.start(loop ?? this.settings.loop, this.settings.speed)
+      clip.start(loop ?? this.settings.loop, this.settings.speed, startMs)
       if (this.paused) clip.el.pause()
     }
+    // An animated image starts partway through its loop the same way.
+    const totalMs = clip.kind === 'image' ? clip.timeline.totalMs : 0
     this.playing = {
       id,
       clip,
-      elapsedMs: 0,
+      elapsedMs: totalMs > 0 ? startMs % totalMs : 0,
       uploadedFrame: -1,
       hasTexture: false,
       started: false,
@@ -170,12 +175,12 @@ export class ClipLayer {
     }
   }
 
-  private end(reason: EndReason): void {
+  private end(reason: EndReason, rewind = true): void {
     const p = this.playing
     if (!p) return
     this.playing = null
     this.lastTransform = null
-    if (p.clip.kind === 'video') p.clip.stop()
+    if (p.clip.kind === 'video') p.clip.stop(rewind)
     this.media.unpin(p.id)
     this.events.onEnded(p.id, p.owner, reason)
   }
