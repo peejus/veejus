@@ -8,7 +8,7 @@ The build follows the phased plan in [VEEJUS_AGENT_PROMPT.md](VEEJUS_AGENT_PROMP
 
 ## Requirements
 
-- Node.js 20.11+ (developed on Node 24)
+- Node.js 20.19+ or 22.12+ (developed on Node 24; `nvm use` picks 22 from `.nvmrc`)
 - Windows 10/11, or macOS 13 (Ventura) or later on Apple silicon or Intel
 - ffmpeg, only for regenerating test fixtures (`winget install Gyan.FFmpeg`, or `brew install ffmpeg` on a Mac)
 
