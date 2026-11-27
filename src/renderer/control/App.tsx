@@ -31,7 +31,13 @@ import { EFFECT_DEFS } from '@shared/fx'
 import { padId } from '@shared/pads'
 import { useOutputLink } from './useOutputLink'
 import { autoClips, useAutoPlay } from './useAutoPlay'
-import { AutoPlayButton, AutoPlayPanel, QuickStart, importSummary } from './AutoPlay'
+import {
+  AutoPlayButton,
+  AutoPlayPanel,
+  QuickStart,
+  importSummary,
+  photosWaitNotice,
+} from './AutoPlay'
 import type { ImportResult } from '@shared/protocol'
 
 /** What the context panel (right column, under the beat strip) is showing. */
@@ -182,8 +188,11 @@ export function App() {
   }
   const importFor = (mode: 'files' | 'folder') =>
     importAndPlay(request({ type: 'pickAndImport', mode }, 'imported'))
-  const importPathsFor = (paths: string[]) =>
+  const importPathsFor = (paths: string[]) => {
+    const wait = photosWaitNotice(paths)
+    if (wait) setNotice(wait)
     importAndPlay(request({ type: 'importPaths', paths }, 'imported'))
+  }
 
   const toggleAuto = () => {
     if (auto.settings.enabled) return auto.setEnabled(false)

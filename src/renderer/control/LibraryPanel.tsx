@@ -5,6 +5,7 @@ import { bridge, request } from './bridge'
 import type { LibraryState } from './useLibrary'
 import { CLIP_DRAG_TYPE } from './PadGrid'
 import { useLibrarySize } from './useLibrarySize'
+import { importSummary, photosWaitNotice } from './AutoPlay'
 
 const UNDO_MS = 10_000
 /** The "collection" value that means favorites. */
@@ -286,10 +287,7 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }
   const runImport = (p: ReturnType<typeof request<'imported'>>) => {
     p.then(({ result }) => {
       if (result.added === 0 && result.skipped === 0) return
-      setNotice(
-        `Added ${result.added} clip${result.added === 1 ? '' : 's'}` +
-          (result.skipped ? ` (${result.skipped} skipped: duplicates or unsupported)` : ''),
-      )
+      setNotice(importSummary(result))
     }).catch((e: Error) => setNotice(`Import failed: ${e.message}`))
   }
 
@@ -297,7 +295,10 @@ export function LibraryPanel({ library, onPlay, selectedId, onSelect, assigned }
     e.preventDefault()
     setDragging(false)
     const paths = [...e.dataTransfer.files].map((f) => bridge.getPathForFile(f)).filter(Boolean)
-    if (paths.length > 0) runImport(request({ type: 'importPaths', paths }, 'imported'))
+    if (paths.length === 0) return
+    const wait = photosWaitNotice(paths)
+    if (wait) setNotice(wait)
+    runImport(request({ type: 'importPaths', paths }, 'imported'))
   }
 
   const categories = new Map(clips.map((c) => [c.id, categoryOf(c, library)]))

@@ -331,6 +331,8 @@ export type MainRequest =
 export interface ImportResult {
   added: number
   skipped: number
+  /** Problems worth telling the user about (e.g. a video Photos couldn't export). */
+  warnings?: string[]
 }
 
 export type MainResponse =
