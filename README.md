@@ -51,6 +51,7 @@ On a Mac, double-click **`Start-Veejus.command`** instead (same behaviour; `./St
 | `npm run fixtures:audio`    | Write synthetic drum patterns + ground truth to `fixtures/audio`                              |
 | `npm run analyze -- <file>` | Run onset detection and beat tracking over an audio file (WAV, or MP3/FLAC/... via ffmpeg)    |
 | `npm run build:link`        | Build the optional Ableton Link module into `native/` (needs Visual Studio C++ Build Tools)   |
+| `npm run build:photodrop`   | On a Mac: build the optional helper that imports videos dragged in from the Photos app        |
 | `npm run dist`              | Build the Windows installer into `dist/` (unsigned; see Installing below)                     |
 | `npm run dist:mac`          | On a Mac: build a `.dmg` and `.zip` for that Mac into `dist/`                                 |
 | `npm run dist:mac-zip`      | On any OS: build macOS zips for Apple silicon and Intel into `dist/` (see Installing (macOS)) |
@@ -152,7 +153,7 @@ The environment variable `VEEJUS_HW_VIDEO_DECODE=1` (or `0`) overrides the setti
 There are two ways to get a Mac app:
 
 - **Built on Windows (no Mac needed):** `npm run dist:mac-zip` writes `dist/Veejus-<version>-mac-arm64.zip` (Apple silicon: M1 and later) and `dist/Veejus-<version>-mac-x64.zip` (Intel Macs). Not sure which Mac you have? Apple menu → About This Mac: "Chip: Apple M…" means arm64. This build has no Ableton Link module.
-- **Built on a Mac:** `npm run dist:mac` writes a `.dmg` and a `.zip` for that Mac's CPU into `dist/`. Run `npm run build:link` first (needs `xcode-select --install`) to include Ableton Link.
+- **Built on a Mac:** `npm run dist:mac` writes a `.dmg` and a `.zip` for that Mac's CPU into `dist/`. Run `npm run build:link` and `npm run build:photodrop` first (both need `xcode-select --install`) to include Ableton Link and Photos video drops.
 
 Either way the app isn't signed with an Apple Developer ID, so macOS blocks it at first. For the zip built on Windows, unzip it on the Mac (double-click), drag **Veejus** to Applications, then run this once in Terminal to clear the download quarantine and sign it for this Mac:
 
@@ -165,6 +166,7 @@ For the `.dmg` built on a Mac, drag Veejus to Applications and right-click it �
 - **Permissions:** the first time you pick an audio input, macOS asks to let Veejus use the microphone; Ableton Link may ask for local network access. Change these later in System Settings → Privacy & Security.
 - **System audio:** macOS has no built-in way for apps to capture what the Mac is playing, so the **System audio** source is Windows-only. Install a virtual audio device such as [BlackHole](https://existential.audio/blackhole/), send your music to it (Audio MIDI Setup → multi-output device), and pick BlackHole as the audio input.
 - **Keys:** ⌘ replaces Ctrl (⌘S, ⌘O, ⌘⇧S). In the output window **⌃⌘F** toggles fullscreen (F11 shows the desktop on a Mac). On a laptop keyboard the bank keys are **fn + F1–F4**.
+- **Videos from the Photos app:** drag a video from Photos onto the library and Veejus asks Photos for the video itself (downloading it from iCloud if needed) and keeps a copy in `~/Movies/Veejus/From Photos`. Without the Photos drop helper (`npm run build:photodrop`; not in the zips built on Windows), Photos only hands over a preview frame, so the video arrives as a still: drag it to the Desktop first and drop that file instead.
 - **Where your data lives:** the autosave and recent-sets list are in `~/Library/Application Support/Veejus`.
 
 ## Installing (Windows)

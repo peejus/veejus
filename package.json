@@ -1,6 +1,6 @@
 {
   "name": "veejus",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Beat-synced VJ app for firing silly clips and GIFs on the drop",
   "main": "./out/main/index.js",
   "engines": {
@@ -26,7 +26,8 @@
     "soak": "node scripts/soak.mjs",
     "dist": "electron-vite build && electron-builder --win",
     "dist:mac": "electron-vite build && electron-builder --mac",
-    "dist:mac-zip": "electron-vite build && node scripts/package-mac.mjs"
+    "dist:mac-zip": "electron-vite build && node scripts/package-mac.mjs",
+    "build:photodrop": "node scripts/build-photodrop.mjs"
   },
   "author": "Veejus",
   "license": "UNLICENSED",

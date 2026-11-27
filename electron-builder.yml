@@ -8,12 +8,14 @@ directories:
 files:
   - out/**
   - package.json
-# The optional Ableton Link module (npm run build:link), if it has been built.
+# Optional native modules, if built: Ableton Link (npm run build:link) and the macOS
+# Photos drop helper (npm run build:photodrop).
 extraResources:
   - from: native
     to: native
     filter:
       - abletonlink.node
+      - photodrop.node
 win:
   target:
     - target: nsis

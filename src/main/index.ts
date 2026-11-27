@@ -26,6 +26,7 @@ import {
 } from '@shared/protocol'
 import { Library } from './library'
 import { LinkManager, linkModulePath } from './link'
+import { PhotosDrop, installPhotosDrop, photosDropModulePath } from './photosDrop'
 import {
   SetStore,
   findFilesByName,
@@ -67,6 +68,8 @@ const link = new LinkManager(
   linkModulePath(__dirname, app.isPackaged, process.resourcesPath),
   (sample) => outputWin?.webContents.send(Channel.link, sample),
 )
+// Videos dragged in from the Photos app are kept here (see photosDrop.ts).
+const photosDrop = new PhotosDrop(join(app.getPath('videos'), 'Veejus', 'From Photos'))
 let controlWin: BrowserWindow | null = null
 let outputWin: BrowserWindow | null = null
 let quitting = false
@@ -394,7 +397,9 @@ async function relink(
 }
 
 async function importAndBroadcast(paths: string[]): Promise<MainResponse> {
-  const result = await library.importPaths(paths)
+  const resolved = await photosDrop.resolve(paths)
+  const result = await library.importPaths(resolved.paths)
+  if (resolved.warnings.length > 0) result.warnings = resolved.warnings
   if (result.added > 0) broadcastLibrary()
   return { type: 'imported', result }
 }
@@ -590,6 +595,13 @@ app.whenReady().then(() => {
   handleMediaProtocol(library)
   registerMediaPermissions()
   registerIpc()
+  const photosDropOff = installPhotosDrop(
+    photosDropModulePath(__dirname, app.isPackaged, process.resourcesPath),
+    join(app.getPath('userData'), 'photos-incoming'),
+    photosDrop,
+  )
+  if (photosDropOff && process.platform === 'darwin')
+    console.warn(`Photos video drops are off: ${photosDropOff}`)
   controlWin = createControlWindow()
   outputWin = createOutputWindow()
   screen.on('display-added', broadcastOutputState)

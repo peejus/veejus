@@ -353,6 +353,14 @@ export function QuickStart(p: {
 export function importSummary(r: ImportResult): string {
   return (
     `Added ${r.added} clip${r.added === 1 ? '' : 's'}` +
-    (r.skipped ? ` (${r.skipped} skipped: duplicates or unsupported)` : '')
+    (r.skipped ? ` (${r.skipped} skipped: duplicates or unsupported)` : '') +
+    (r.warnings?.length ? `. ${r.warnings.join(' ')}` : '')
   )
+}
+
+/** Shown while a drop waits on Photos, which exports a dragged video (from iCloud, if need be). */
+export function photosWaitNotice(paths: string[]): string | null {
+  return paths.some((p) => /\.photoslibrary[\\/]/i.test(p))
+    ? 'Getting the video from Photos… (this can take a while if it’s in iCloud)'
+    : null
 }
