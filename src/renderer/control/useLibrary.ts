@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { isOutputToControl, type ClipInfo, type ClipLoadState } from '@shared/protocol'
+import {
+  isOutputToControl,
+  type ClipInfo,
+  type ClipLoadState,
+  type ClipTrim,
+} from '@shared/protocol'
 import { bridge, request } from './bridge'
 import { ProbeQueue, type ProbeResult } from './probe'
+
+export interface ClipMetaPatch {
+  tags?: string[]
+  favorite?: boolean
+  trim?: ClipTrim | null
+}
 
 export interface LastStart {
   id: string
@@ -19,8 +30,8 @@ export interface LibraryState {
   /** Record that a play request was just sent, for latency measurement. */
   markPlayRequested(id: string): void
   remove(ids: string[]): void
-  /** Change a clip's collections and/or favorite flag. */
-  setMeta(id: string, meta: { tags?: string[]; favorite?: boolean }): void
+  /** Change a clip's collections, favorite flag and/or trim (null clears it). */
+  setMeta(id: string, meta: ClipMetaPatch): void
 }
 
 /** Library contents (from main), probe results (thumbnails/meta) and output-side load states. */
@@ -104,7 +115,7 @@ export function useLibrary(): LibraryState {
     request({ type: 'removeClips', ids }, 'library').catch(console.error)
   }, [])
 
-  const setMeta = useCallback((id: string, meta: { tags?: string[]; favorite?: boolean }) => {
+  const setMeta = useCallback((id: string, meta: ClipMetaPatch) => {
     request({ type: 'setClipMeta', id, ...meta }, 'library').catch(console.error)
   }, [])
 

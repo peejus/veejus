@@ -16,7 +16,9 @@ import {
   PADS_PER_BANK,
   PLAY_MODES,
   QUANTIZES,
+  isLoopBeats,
   isPadSource,
+  isStartAt,
   isTag,
   isTriggerSettings,
   type PadConfig,
@@ -25,7 +27,7 @@ import {
   type TriggerSettings,
 } from './pads'
 import { isPlacement, isKeySettings, isLayerId } from './layers'
-import { isLayerSettings, type LayerSettings } from './protocol'
+import { isClipTrim, isLayerSettings, type ClipTrim, type LayerSettings } from './protocol'
 
 export const SET_FORMAT = 'veejus-set'
 export const SET_VERSION = 1
@@ -41,6 +43,8 @@ export interface SetClip {
   relPath: string | null
   tags: string[]
   favorite: boolean
+  /** Videos: the part that plays (missing in older sets: all of it). */
+  trim?: ClipTrim | null
 }
 
 export interface VeejusSet {
@@ -106,6 +110,8 @@ const isStr = (v: unknown, max = 4096): v is string => typeof v === 'string' && 
 export function isPadConfig(v: unknown): v is PadConfig {
   return (
     isObj(v) &&
+    (v.startAt === undefined || isStartAt(v.startAt)) &&
+    (v.loopBeats === undefined || isLoopBeats(v.loopBeats)) &&
     (v.source === null || isPadSource(v.source)) &&
     PLAY_MODES.includes(v.mode as PlayMode) &&
     (v.quantize === 'global' || QUANTIZES.includes(v.quantize as Quantize)) &&
@@ -129,7 +135,8 @@ function isSetClip(v: unknown): v is SetClip {
     (v.relPath === null || isStr(v.relPath)) &&
     Array.isArray(v.tags) &&
     v.tags.every(isTag) &&
-    typeof v.favorite === 'boolean'
+    typeof v.favorite === 'boolean' &&
+    (v.trim === undefined || v.trim === null || isClipTrim(v.trim))
   )
 }
 

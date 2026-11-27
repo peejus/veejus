@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import {
+  LOOP_BEATS,
+  START_AT_LABELS,
   PAD_COLS,
   PAD_KEY_LABELS,
   PLAY_MODES,
@@ -13,6 +15,7 @@ import {
   type PlayMode,
   type Quantize,
   type RetriggerUnit,
+  type StartAt,
 } from '@shared/pads'
 import {
   ANCHORS,
@@ -355,6 +358,8 @@ function advancedSummary(config: PadConfig): string {
   if (config.quantize !== 'global') parts.push(`quantize ${QUANTIZE_LABELS[config.quantize]}`)
   if (config.fadeInBeats > 0 || config.fadeOutBeats > 0) parts.push('fades')
   if (config.syncBeats !== null) parts.push('tempo sync')
+  if (config.startAt === 'random') parts.push('random start')
+  if (config.loopBeats) parts.push(`beat loop ${beatsLabel(config.loopBeats)}`)
   const p = config.placement
   if (p.offsetX !== 0 || p.offsetY !== 0 || p.rotationDeg !== 0) parts.push('moved')
   if (p.entrance !== 'none') parts.push(ENTRANCE_LABELS[p.entrance].split(' ')[0]!.toLowerCase())
@@ -558,6 +563,49 @@ export function PadEditor({ pads, clips }: { pads: PadsLink; clips: ClipInfo[] }
             ))}
           </select>
         </label>
+
+        <label className="field">
+          <span className="label">Start at</span>
+          <select
+            aria-label="Pad start"
+            title="Where a video or GIF starts each time the pad fires (and each retrigger)"
+            value={config.startAt ?? 'start'}
+            onChange={(e) => set({ startAt: e.target.value as StartAt })}
+          >
+            {(Object.keys(START_AT_LABELS) as StartAt[]).map((s) => (
+              <option key={s} value={s}>
+                {START_AT_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        {config.startAt === 'random' && config.syncBeats !== null && (
+          <p className="hint">Tempo sync plays the clip from the top, so it starts there.</p>
+        )}
+
+        <label className="field">
+          <span className="label">Beat loop</span>
+          <select
+            aria-label="Beat loop"
+            title="Play this many beats at normal speed, then jump back to where it started"
+            value={config.loopBeats ?? ''}
+            disabled={config.mode === 'oneShot' || config.mode === 'retrigger'}
+            onChange={(e) => set({ loopBeats: e.target.value ? Number(e.target.value) : null })}
+          >
+            <option value="">Off</option>
+            {LOOP_BEATS.map((b) => (
+              <option key={b} value={b}>
+                Loop {beatsLabel(b)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {(config.mode === 'oneShot' || config.mode === 'retrigger') && (
+          <p className="hint">
+            Beat loop works with For N beats, While held and Toggle loop
+            {config.mode === 'retrigger' ? ' (Retrigger already repeats on the beat)' : ''}.
+          </p>
+        )}
 
         <MotionEditor p={config.placement} set={setPlacement} />
         <KeyEditor k={config.key} set={(patch) => set({ key: { ...config.key, ...patch } })} />

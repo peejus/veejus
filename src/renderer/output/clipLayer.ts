@@ -108,16 +108,15 @@ export class ClipLayer {
     this.end('stopped')
   }
 
-  /** Jump back to the first frame (retrigger). */
-  restart(): void {
+  /** Jump back to `startMs` (retrigger, beat loop; 0: the first frame). */
+  restart(startMs = 0): void {
     const p = this.playing
     if (!p) return
     if (p.clip.kind === 'video') {
-      p.clip.el.currentTime = 0
-      p.clip.hasNewFrame = true
-      if (p.clip.el.paused && !this.paused) void p.clip.el.play().catch(() => {})
+      p.clip.restart(startMs, !this.paused)
     } else {
-      p.elapsedMs = 0
+      const totalMs = p.clip.timeline.totalMs
+      p.elapsedMs = totalMs > 0 ? startMs % totalMs : 0
       p.uploadedFrame = -1
     }
   }

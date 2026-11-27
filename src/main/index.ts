@@ -292,7 +292,12 @@ async function loadSet(
     else missing.push(clip)
   }
   const ids = await library.load(
-    found.map(({ clip, path }) => ({ path, tags: clip.tags, favorite: clip.favorite })),
+    found.map(({ clip, path }) => ({
+      path,
+      tags: clip.tags,
+      favorite: clip.favorite,
+      trim: clip.trim ?? null,
+    })),
   )
   const idMap: Record<string, string> = {}
   for (const { clip, path } of found) {

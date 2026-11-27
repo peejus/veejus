@@ -63,7 +63,13 @@ export type TriggerAction =
       /** Where in the clip to start, ms (auto-play's long clips); 0 or missing: the start. */
       startMs?: number
     }
-  | { type: 'restart'; layer: LayerId; padId: string }
+  | {
+      type: 'restart'
+      layer: LayerId
+      padId: string
+      /** Where in the clip to restart, ms; 0 or missing: the start. */
+      startMs?: number
+    }
   | { type: 'stop'; layer: LayerId; padId: string }
 
 /** A press this soon after a boundary still counts for that boundary (human timing). */
@@ -76,6 +82,8 @@ interface Pending {
   firePos: number
   /** 0..1 from pad velocity: scales the clip's opacity. */
   gain: number
+  /** Where the clip starts, ms, decided at press when its length was known (and cued). */
+  startMs: number | null
 }
 
 /** What a layer is showing for a pad. */
@@ -91,6 +99,15 @@ export interface Voice {
   nextRetriggerPos: number | null
   /** 0..1 from pad velocity: scales the clip's opacity. */
   gain: number
+  /** Where in the clip it started (and a beat loop jumps back to), ms. */
+  startMs: number
+}
+
+/** Beats a pad repeats on: its beat loop, else its retrigger unit (retrigger mode). */
+export function loopBeatsOf(spec: PadSpec): number | null {
+  // A one-shot would never end, and retrigger already repeats on its own grid.
+  if (spec.mode === 'oneShot' || spec.mode === 'retrigger') return null
+  return spec.loopBeats ?? null
 }
 
 const unitFor = (q: Exclude<Quantize, 'off'>): GridUnit => q
@@ -98,7 +115,10 @@ const unitFor = (q: Exclude<Quantize, 'off'>): GridUnit => q
 export class TriggerScheduler {
   settings: TriggerSettings = { ...DEFAULT_TRIGGER_SETTINGS }
   private readonly pending = new Map<string, Pending>()
-  private readonly armed = new Map<string, { spec: PadSpec; clipId: string | null }>()
+  private readonly armed = new Map<
+    string,
+    { spec: PadSpec; clipId: string | null; startMs: number | null }
+  >()
   private dropPos: number | null = null
   private readonly voices = new Map<LayerId, Voice>()
   private readonly lastPick = new Map<string, string>()
@@ -163,6 +183,35 @@ export class TriggerScheduler {
     return clipId
   }
 
+  /**
+   * Where a pad's clip starts, ms: the beginning, or with 'random' a spot that leaves room for
+   * what plays before the next jump (beat loop, retrigger or 'beats' length). Null while the
+   * clip's length isn't known (not loaded). A tempo-synced clip always starts at the top.
+   */
+  private padStartMs(spec: PadSpec, clipId: string, clock: ClockView): number | null {
+    if (spec.startAt !== 'random' || spec.syncBeats !== null) return 0
+    const durationMs = this.clips.durationMs?.(clipId) ?? null
+    if (durationMs === null) return null
+    const windowBeats =
+      loopBeatsOf(spec) ??
+      (spec.mode === 'retrigger'
+        ? spec.retriggerEvery === 'bar'
+          ? BEATS_PER_BAR
+          : 1
+        : spec.mode === 'beats'
+          ? spec.lengthBeats
+          : 0)
+    const room = Math.floor(durationMs - windowBeats / clock.beatsPerMs)
+    return room > 0 ? Math.round(this.rand() * room) : 0
+  }
+
+  /** Decide a pad's start spot now if its clip is loaded, and cue the clip there. */
+  private padCue(spec: PadSpec, clipId: string, clock: ClockView): number | null {
+    const startMs = this.padStartMs(spec, clipId, clock)
+    if (startMs) this.clips.cue?.(clipId, startMs)
+    return startMs
+  }
+
   press(padId: string, spec: PadSpec, nowMs: number, clock: ClockView, gain = 1): void {
     const pos = clock.position(nowMs)
     const firePos = this.firePosition(pos, spec.quantize, clock)
@@ -183,13 +232,21 @@ export class TriggerScheduler {
       return
     }
     if (active && latches && active.endPos === null) {
-      this.pending.set(padId, { kind: 'stop', spec, clipId: active.clipId, firePos, gain })
+      this.pending.set(padId, {
+        kind: 'stop',
+        spec,
+        clipId: active.clipId,
+        firePos,
+        gain,
+        startMs: null,
+      })
       this.changed()
       return
     }
     const clipId = this.choose(padId, spec.source)
     if (!clipId) return
-    this.pending.set(padId, { kind: 'start', spec, clipId, firePos, gain })
+    const startMs = this.padCue(spec, clipId, clock)
+    this.pending.set(padId, { kind: 'start', spec, clipId, firePos, gain, startMs })
     this.changed()
   }
 
@@ -213,7 +270,7 @@ export class TriggerScheduler {
     }
     const clipId = this.choose(padId, spec.source)
     if (!clipId) return
-    this.armed.set(padId, { spec, clipId })
+    this.armed.set(padId, { spec, clipId, startMs: this.padCue(spec, clipId, clock) })
     if (this.dropPos === null) this.dropPos = this.dropTarget(nowMs, clock)
     this.changed()
   }
@@ -464,7 +521,16 @@ export class TriggerScheduler {
     const due = (target: number) => pos >= target - (clock.beatsPerMs * frameMs) / 2
     const actions: TriggerAction[] = []
 
-    const start = (padId: string, spec: PadSpec, clipId: string, startPos: number, gain = 1) => {
+    const start = (
+      padId: string,
+      spec: PadSpec,
+      clipId: string,
+      startPos: number,
+      gain = 1,
+      decided: number | null = null,
+    ) => {
+      const startMs = decided ?? this.padStartMs(spec, clipId, clock) ?? 0
+      const loop = loopBeatsOf(spec)
       // A pad moving layers leaves its old one.
       const previous = this.voiceOf(padId)
       if (previous && previous[0] !== spec.layer) {
@@ -479,16 +545,27 @@ export class TriggerScheduler {
         endPos: spec.mode === 'beats' ? startPos + spec.lengthBeats : null,
         fadeFromPos: null,
         nextRetriggerPos:
-          spec.mode === 'retrigger'
-            ? clock.boundaryAfter(startPos + 1e-6, spec.retriggerEvery)
-            : null,
+          loop !== null
+            ? startPos + loop
+            : spec.mode === 'retrigger'
+              ? clock.boundaryAfter(startPos + 1e-6, spec.retriggerEvery)
+              : null,
         gain,
+        startMs,
       }
       if (v.endPos !== null && spec.fadeOutBeats > 0) {
         v.fadeFromPos = Math.max(startPos, v.endPos - spec.fadeOutBeats)
       }
       this.voices.set(spec.layer, v)
-      actions.push({ type: 'start', layer: spec.layer, padId, clipId, spec, startPos })
+      actions.push({
+        type: 'start',
+        layer: spec.layer,
+        padId,
+        clipId,
+        spec,
+        startPos,
+        ...(startMs > 0 ? { startMs } : {}),
+      })
       this.changed()
     }
 
@@ -498,7 +575,7 @@ export class TriggerScheduler {
       for (const [padId, a] of this.armed) {
         if (a.clipId) {
           this.pending.delete(padId)
-          start(padId, a.spec, a.clipId, at)
+          start(padId, a.spec, a.clipId, at, 1, a.startMs)
         }
       }
       this.armed.clear()
@@ -510,7 +587,7 @@ export class TriggerScheduler {
       if (!due(p.firePos)) continue
       this.pending.delete(padId)
       if (p.kind === 'start' && p.clipId)
-        start(padId, p.spec, p.clipId, Math.max(p.firePos, pos), p.gain)
+        start(padId, p.spec, p.clipId, Math.max(p.firePos, pos), p.gain, p.startMs)
       else if (p.kind === 'stop') {
         const found = this.voiceOf(padId)
         if (found) this.beginStop(found[1], pos)
@@ -526,8 +603,21 @@ export class TriggerScheduler {
         this.voices.delete(layer)
         this.changed()
       } else if (v.nextRetriggerPos !== null && due(v.nextRetriggerPos)) {
-        actions.push({ type: 'restart', layer, padId: v.padId })
-        v.nextRetriggerPos = clock.boundaryAfter(v.nextRetriggerPos + 1e-6, v.spec.retriggerEvery)
+        const loop = loopBeatsOf(v.spec)
+        if (loop !== null) {
+          // Beat loop: back to the same spot, exactly `loop` beats on.
+          v.nextRetriggerPos += loop
+        } else {
+          // Retrigger: a new spot each time with a random start.
+          if (v.spec.startAt === 'random') v.startMs = this.padStartMs(v.spec, v.clipId, clock) ?? 0
+          v.nextRetriggerPos = clock.boundaryAfter(v.nextRetriggerPos + 1e-6, v.spec.retriggerEvery)
+        }
+        actions.push({
+          type: 'restart',
+          layer,
+          padId: v.padId,
+          ...(v.startMs > 0 ? { startMs: v.startMs } : {}),
+        })
       }
     }
     // Auto-play last, so a pad that ended on this frame hands its layer straight back.
@@ -557,9 +647,7 @@ export class TriggerScheduler {
           // The same still again (a one-clip source) just stays up; anything else restarts.
           const still = (this.clips.durationMs?.(clipId) ?? null) === null
           if (!(still && occupant?.padId === AUTO_PAD_ID && occupant.clipId === clipId)) {
-            start(AUTO_PAD_ID, this.autoSpec(clipId, plan), clipId, startPos)
-            const last = actions[actions.length - 1]
-            if (startMs > 0 && last?.type === 'start') last.startMs = startMs
+            start(AUTO_PAD_ID, this.autoSpec(clipId, plan), clipId, startPos, 1, startMs)
           }
           if (plan.syncBeats === null)
             this.autoResume.set(clipId, Math.round(startMs + plan.beats / clock.beatsPerMs))

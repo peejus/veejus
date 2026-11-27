@@ -74,6 +74,31 @@ export const Channel = {
 /** Linear RGB in 0..1. */
 export type Rgb = readonly [number, number, number]
 
+/**
+ * The part of a video that plays, ms from its start (outMs null: to the end). Everything that
+ * plays the clip (pads, auto-play, library plays, tempo sync) sees only this part.
+ */
+export interface ClipTrim {
+  inMs: number
+  outMs: number | null
+}
+
+/** Shortest a trimmed clip may be, ms. */
+export const MIN_TRIM_MS = 100
+const MAX_CLIP_MS = 24 * 3600 * 1000
+
+export function isClipTrim(v: unknown): v is ClipTrim {
+  if (typeof v !== 'object' || v === null) return false
+  const t = v as Record<string, unknown>
+  const ok = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
+  return (
+    ok(t.inMs) &&
+    t.inMs >= 0 &&
+    t.inMs <= MAX_CLIP_MS &&
+    (t.outMs === null || (ok(t.outMs) && t.outMs >= t.inMs + MIN_TRIM_MS && t.outMs <= MAX_CLIP_MS))
+  )
+}
+
 /** A media file registered in the library. Owned by the main process. */
 export interface ClipInfo {
   /** Stable id derived from the file path. */
@@ -88,6 +113,8 @@ export interface ClipInfo {
   /** Collections the clip belongs to (e.g. "Air Horns"); random pads can pick from them. */
   tags: string[]
   favorite: boolean
+  /** Videos only: the part that plays; null plays it all. */
+  trim: ClipTrim | null
 }
 
 export type FitMode = 'contain' | 'cover' | 'stretch' | 'original'
@@ -273,7 +300,14 @@ export type MainRequest =
   | { type: 'pickAndImport'; mode: 'files' | 'folder' }
   | { type: 'removeClips'; ids: string[] }
   /** Change a clip's collections and/or favorite flag. */
-  | { type: 'setClipMeta'; id: string; tags?: string[]; favorite?: boolean }
+  | {
+      type: 'setClipMeta'
+      id: string
+      tags?: string[]
+      favorite?: boolean
+      /** null clears the trim. */
+      trim?: ClipTrim | null
+    }
   /** Save the set: to `path`, or ask where (no path yet, or Save As). */
   | { type: 'saveSet'; set: VeejusSet; path: string | null; saveAs: boolean }
   /** Open a set file (ask which when `path` is null). Replaces the library. */
@@ -583,7 +617,8 @@ export function isMainRequest(v: unknown): v is MainRequest {
         typeof v.id === 'string' &&
         (v.tags === undefined ||
           (Array.isArray(v.tags) && v.tags.length <= 32 && v.tags.every(isTag))) &&
-        (v.favorite === undefined || typeof v.favorite === 'boolean')
+        (v.favorite === undefined || typeof v.favorite === 'boolean') &&
+        (v.trim === undefined || v.trim === null || isClipTrim(v.trim))
       )
     default:
       return false

@@ -67,6 +67,8 @@ export function specFor(
     layer: config.layer === 'auto' ? autoLayer(config.mode, forDrop) : config.layer,
     placement: config.placement,
     key: config.key,
+    startAt: config.startAt ?? 'start',
+    loopBeats: config.loopBeats ?? null,
   }
 }
 

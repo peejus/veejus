@@ -35,7 +35,7 @@
 1. **Import.** Control sends `importPaths`, or `pickAndImport` for the native dialog. Main scans folders recursively (natural sort, depth and count limits) and registers supported files under a stable id (a hash of the path). Then it broadcasts the whole library on `veejus:library` to both windows.
 2. **Probe (control).** `ProbeQueue` reads each clip three at a time, for a PNG thumbnail plus metadata: size, duration or frame count, and whether the sampled frame has transparency. Pads fill in progressively.
 3. **Preload (output).** `MediaManager.sync()` queues every new clip, two at a time:
-   - **Video:** a detached, muted `<video>` paused on frame 0 (`VideoClip`).
+   - **Video:** a detached, muted `<video>` paused on its first frame (`VideoClip`). A clip's `trim` (`ClipInfo.trim`, set in main and saved in sets) makes everything relative to the in-point: `durationMs` is the trimmed length, start offsets count from the in-point, and looping is done by hand (seek back at the out-point) because the element's own loop can't loop a part. `MediaManager.sync` pushes trim changes to loaded videos.
    - **Animated images and stills:** all frames decoded up front with WebCodecs `ImageDecoder` into premultiplied `ImageBitmap`s (`ImageClip`).
    - **Budgets:** two `LruBudget`s cap memory, one for image bytes (768 MB) and one for warm videos (16).
    - **Eviction:** background preloads only fill free space. A play request can evict least-recently-used clips, but never the one on screen, which is pinned.

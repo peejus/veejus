@@ -9,6 +9,7 @@ import {
 import { useState } from 'react'
 import { MAX_TAG_LENGTH } from '@shared/pads'
 import type { LibraryState } from './useLibrary'
+import { TrimEditor } from './TrimEditor'
 
 const FIT_LABELS: Record<FitMode, string> = {
   contain: 'Contain (whole clip)',
@@ -33,12 +34,13 @@ export function ClipInspector({ clip, settings, onChange, library, onPlay, onSto
   const last = library.lastStart
   const broken =
     library.outputStates[clip.id]?.state === 'error' || (probe !== undefined && !probe.ok)
+  const videoMs = clip.kind === 'video' && probe?.ok ? (probe.meta.durationMs ?? 0) : 0
   return (
     <div className="clip-inspector" data-testid="clip-inspector">
       <h2 className="clip-title" title={clip.path}>
         {clip.name}
       </h2>
-      {probe?.ok && (
+      {probe?.ok && !(videoMs > 0) && (
         <div className="clip-thumb">
           <img src={probe.meta.thumbUrl} alt="" />
         </div>
@@ -54,6 +56,15 @@ export function ClipInspector({ clip, settings, onChange, library, onPlay, onSto
         </button>
       </div>
       <p className="hint">To play it on the beat, drag it onto a pad.</p>
+
+      {videoMs > 0 && !broken && (
+        <TrimEditor
+          key={clip.id}
+          clip={clip}
+          durationMs={videoMs}
+          onChange={(trim) => library.setMeta(clip.id, { trim })}
+        />
+      )}
 
       <ClipCollections clip={clip} library={library} />
 

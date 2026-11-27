@@ -358,7 +358,7 @@ function applyTriggerActions(actions: TriggerAction[], now: number): void {
         })
         break
       case 'restart':
-        if (layer.current?.owner === a.padId) layer.restart()
+        if (layer.current?.owner === a.padId) layer.restart(a.startMs ?? 0)
         break
       case 'stop':
         if (layer.current?.owner === a.padId) layer.stop()
@@ -826,6 +826,11 @@ function frame(now: number): void {
           }
         : null,
     }
+  },
+  /** Playing length of a loaded clip, ms (a video's trimmed length); null if not loaded. */
+  clipDurationMs: (id: string) => {
+    const c = media.getReady(id)
+    return c ? (c.kind === 'video' ? c.durationMs : c.timeline.totalMs) : null
   },
   /** RGBA of the pixel at fractional canvas position (fx, fy), read after the next frame. */
   samplePixel: (fx: number, fy: number) =>
