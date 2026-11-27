@@ -36,6 +36,8 @@ export function autoClips(clips: readonly ClipInfo[], source: AutoSource): ClipI
     switch (source.kind) {
       case 'images':
         return c.kind === 'image'
+      case 'videos':
+        return c.kind === 'video'
       case 'all':
         return true
       case 'collection':

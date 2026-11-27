@@ -104,12 +104,33 @@ export class VideoClip {
     return this.width * this.height * 4 * 4
   }
 
-  start(loop: boolean, speed: number): void {
+  /** Seconds a start offset may be from the current time and still count as already there. */
+  private static readonly SEEK_TOLERANCE_S = 0.001
+
+  private seekTo(startMs: number): void {
+    const v = this.el
+    const end = Number.isFinite(v.duration) ? Math.max(0, v.duration - 0.05) : Infinity
+    const t = Math.min(end, Math.max(0, startMs / 1000))
+    // Only seek if needed: a seek, even to the current time, briefly drops the decoded frame.
+    if (Math.abs(v.currentTime - t) > VideoClip.SEEK_TOLERANCE_S) {
+      v.currentTime = t
+      this.hasNewFrame = true
+    }
+  }
+
+  /**
+   * Seek ahead of time while paused, so a later `start(…, startMs)` with the same offset
+   * begins on the next frame instead of waiting for the seek to decode.
+   */
+  cue(startMs: number): void {
+    if (this.el.paused) this.seekTo(startMs)
+  }
+
+  start(loop: boolean, speed: number, startMs = 0): void {
     const v = this.el
     v.loop = loop
     v.playbackRate = speed
-    // Only seek if needed: a seek, even to the current time, briefly drops the decoded frame.
-    if (v.currentTime !== 0) v.currentTime = 0
+    this.seekTo(startMs)
     this.hasNewFrame = true
     void v.play().catch(() => {
       // play() rejects if interrupted by stop(); nothing to do.
@@ -123,10 +144,10 @@ export class VideoClip {
     if (Math.abs(this.el.playbackRate - rate) > 1e-3) this.el.playbackRate = rate
   }
 
-  /** Pause and rewind so the next start is instant again. */
-  stop(): void {
+  /** Pause, and rewind so the next start from the beginning is instant again. */
+  stop(rewind = true): void {
     this.el.pause()
-    if (this.el.currentTime !== 0) this.el.currentTime = 0
+    if (rewind && this.el.currentTime !== 0) this.el.currentTime = 0
   }
 
   dispose(): void {

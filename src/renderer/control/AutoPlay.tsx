@@ -2,9 +2,18 @@ import { useState, type DragEvent } from 'react'
 import {
   AUTO_STEPS,
   AUTO_STEP_LABELS,
+  LONG_BEATS,
+  LONG_BEATS_LABELS,
   PHOTO_FX,
   PHOTO_FX_LABELS,
+  PHOTO_FX_ON,
+  PHOTO_FX_ON_LABELS,
+  VIDEO_STARTS,
+  VIDEO_START_LABELS,
+  type LongBeats,
   type PhotoFx,
+  type PhotoFxOn,
+  type VideoStart,
   type AutoPlayStatus,
   type AutoSource,
   type AutoStep,
@@ -24,7 +33,7 @@ const sourceKey = (s: AutoSource) => (s.kind === 'collection' ? `tag:${s.tag}` :
 const sourceFromKey = (k: string): AutoSource =>
   k.startsWith('tag:')
     ? { kind: 'collection', tag: k.slice(4) }
-    : { kind: k as 'images' | 'all' | 'favorites' }
+    : { kind: k as 'images' | 'videos' | 'all' | 'favorites' }
 
 /** The one-button auto-play toggle in the top bar, with a way into its settings. */
 export function AutoPlayButton(p: {
@@ -45,7 +54,7 @@ export function AutoPlayButton(p: {
         title={
           on
             ? 'Auto-play is stepping through your clips on the beat. Click (or P) to stop.'
-            : 'Play your images and GIFs on the beat, one after another (P)'
+            : 'Play your clips on the beat, one after another (P)'
         }
         onClick={p.onToggle}
       >
@@ -135,8 +144,9 @@ export function AutoPlayPanel(p: {
           value={sourceKey(settings.source)}
           onChange={(e) => set({ source: sourceFromKey(e.target.value) })}
         >
+          <option value="all">Everything ({p.clips.length})</option>
           <option value="images">Images & GIFs ({count({ kind: 'images' })})</option>
-          <option value="all">Everything, videos too ({p.clips.length})</option>
+          <option value="videos">Videos ({count({ kind: 'videos' })})</option>
           <option value="favorites">Favorites ({count({ kind: 'favorites' })})</option>
           {tags.map((t) => (
             <option key={t} value={`tag:${t}`}>
@@ -164,6 +174,38 @@ export function AutoPlayPanel(p: {
           {AUTO_STEPS.map((s) => (
             <option key={s} value={String(s)}>
               {AUTO_STEP_LABELS[String(s)]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {settings.step === 'auto' && (
+        <label className="field">
+          <span className="label">Long videos</span>
+          <select
+            aria-label="Auto-play long videos"
+            title="With the Auto step, a video too long to play through at about its own speed plays at normal speed for this long"
+            value={String(settings.longBeats ?? 16)}
+            onChange={(e) => set({ longBeats: Number(e.target.value) as LongBeats })}
+          >
+            {LONG_BEATS.map((b) => (
+              <option key={b} value={String(b)}>
+                {LONG_BEATS_LABELS[b]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="field">
+        <span className="label">Videos start at</span>
+        <select
+          aria-label="Auto-play video start"
+          title="Where a video longer than its turn starts each time it comes up"
+          value={settings.videoStart ?? 'start'}
+          onChange={(e) => set({ videoStart: e.target.value as VideoStart })}
+        >
+          {VIDEO_STARTS.map((v) => (
+            <option key={v} value={v}>
+              {VIDEO_START_LABELS[v]}
             </option>
           ))}
         </select>
@@ -198,9 +240,9 @@ export function AutoPlayPanel(p: {
         </select>
       </label>
       <label className="field">
-        <span className="label">Photo effect</span>
+        <span className="label">Beat effect</span>
         <select
-          aria-label="Auto-play photo effect"
+          aria-label="Auto-play beat effect"
           value={settings.photoFx ?? 'none'}
           onChange={(e) => set({ photoFx: e.target.value as PhotoFx })}
         >
@@ -211,9 +253,25 @@ export function AutoPlayPanel(p: {
           ))}
         </select>
       </label>
+      {(settings.photoFx ?? 'none') !== 'none' && (
+        <label className="field">
+          <span className="label">Effect on</span>
+          <select
+            aria-label="Auto-play beat effect on"
+            value={settings.photoFxOn ?? 'stills'}
+            onChange={(e) => set({ photoFxOn: e.target.value as PhotoFxOn })}
+          >
+            {PHOTO_FX_ON.map((o) => (
+              <option key={o} value={o}>
+                {PHOTO_FX_ON_LABELS[o]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <p className="hint">
-        Moves still photos in time with the beat. GIFs and videos play as they are. For more
-        control, add these effects from a layer’s FX.
+        Moves the picture in time with the beat. For more control, add these effects from a layer’s
+        FX.
       </p>
       <label className="field">
         <span className="label">Layer</span>
@@ -231,7 +289,7 @@ export function AutoPlayPanel(p: {
       </label>
 
       <div className="row">
-        <button onClick={() => p.onImport('files')}>Add images & GIFs…</button>
+        <button onClick={() => p.onImport('files')}>Add clips…</button>
         <button onClick={() => p.onImport('folder')}>Add a folder…</button>
       </div>
       <p className="hint">
@@ -246,7 +304,7 @@ export function AutoPlayPanel(p: {
 }
 
 /**
- * Shown while the library is empty: load images and GIFs (pick or drop) and the show starts,
+ * Shown while the library is empty: load images, GIFs and videos (pick or drop) and the show starts,
  * auto-playing them on the beat.
  */
 export function QuickStart(p: {
@@ -277,13 +335,13 @@ export function QuickStart(p: {
       <div>
         <h2>Start a show in one click</h2>
         <p>
-          Pick some images and GIFs (or a folder of them) and Veejus plays them on the beat, one
-          after another. You can drop files here too.
+          Pick some images, GIFs and videos (or a folder of them) and Veejus plays them on the beat,
+          one after another. You can drop files here too.
         </p>
       </div>
       <div className="row">
         <button className="primary" onClick={() => p.onImport('files')}>
-          Choose images & GIFs…
+          Choose images, GIFs & videos…
         </button>
         <button onClick={() => p.onImport('folder')}>Choose a folder…</button>
       </div>

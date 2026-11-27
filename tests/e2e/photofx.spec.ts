@@ -378,9 +378,11 @@ test('auto-play can put a different photo effect on each still', async () => {
     )) as {
       fx: { resolved: { background: { effects: { id: string; type: string }[] } } }
       layers: { background: { owner: string | null } }
+      current: { kind: string } | null
     }
     return {
       owner: st.layers.background.owner,
+      kind: st.current?.kind ?? null,
       types: st.fx.resolved.background.effects
         .filter((e) => e.id === 'autoPhoto')
         .map((e) => e.type),
@@ -388,7 +390,13 @@ test('auto-play can put a different photo effect on each still', async () => {
   }
   await sendToOutput(h.control, {
     type: 'setAutoPlay',
-    settings: { ...DEFAULT_AUTO_PLAY, enabled: true, step: 1, photoFx: 'mix' },
+    settings: {
+      ...DEFAULT_AUTO_PLAY,
+      enabled: true,
+      step: 1,
+      photoFx: 'mix',
+      source: { kind: 'images' },
+    },
   })
   const seen = new Set<string>()
   await expect
@@ -409,9 +417,33 @@ test('auto-play can put a different photo effect on each still', async () => {
     settings: { ...DEFAULT_AUTO_PLAY, enabled: true, step: 1, photoFx: 'none' },
   })
   await expect.poll(async () => (await resolvedTypes()).types).toEqual([])
+
+  // Videos get it only when asked to.
+  const onVideos = async (photoFxOn: 'stills' | 'stillsAndVideos') => {
+    await sendToOutput(h.control, {
+      type: 'setAutoPlay',
+      settings: {
+        ...DEFAULT_AUTO_PLAY,
+        enabled: true,
+        step: 1,
+        photoFx: 'pulse',
+        photoFxOn,
+        source: { kind: 'videos' },
+      },
+    })
+    await expect
+      .poll(async () => {
+        const r = await resolvedTypes()
+        return r.owner === 'auto' && r.kind === 'video'
+      })
+      .toBe(true)
+    return (await resolvedTypes()).types
+  }
+  expect(await onVideos('stills')).toEqual([])
+  await expect.poll(() => onVideos('stillsAndVideos')).toEqual(['pulse'])
   await sendToOutput(h.control, { type: 'setAutoPlay', settings: DEFAULT_AUTO_PLAY })
 
   // The option is in the auto-play panel.
   await h.control.getByRole('button', { name: 'Auto-play settings' }).click()
-  await expect(h.control.getByLabel('Auto-play photo effect')).toContainText('Mix')
+  await expect(h.control.getByLabel('Auto-play beat effect')).toContainText('Mix')
 })

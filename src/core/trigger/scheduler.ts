@@ -3,8 +3,9 @@ import { DEFAULT_KEY, DEFAULT_PLACEMENT, LAYER_IDS, type LayerId } from '@shared
 import {
   AUTO_PAD_ID,
   DEFAULT_AUTO_PLAY,
-  autoStepBeats,
+  autoStepPlan,
   type AutoPlaySettings,
+  type AutoStepPlan,
   type AutoPlayStatus,
   type AutoSource,
 } from '@shared/autoplay'
@@ -47,6 +48,8 @@ export interface ClipSource {
   autoCandidates?(source: AutoSource): string[]
   /** Natural length of an animated clip or video, ms; null for a still or not loaded yet. */
   durationMs?(clipId: string): number | null
+  /** Seek a loaded clip that isn't showing to `startMs`, so it starts there without a stall. */
+  cue?(clipId: string, startMs: number): void
 }
 
 export type TriggerAction =
@@ -57,6 +60,8 @@ export type TriggerAction =
       clipId: string
       spec: PadSpec
       startPos: number
+      /** Where in the clip to start, ms (auto-play's long clips); 0 or missing: the start. */
+      startMs?: number
     }
   | { type: 'restart'; layer: LayerId; padId: string }
   | { type: 'stop'; layer: LayerId; padId: string }
@@ -107,6 +112,10 @@ export class TriggerScheduler {
   /** Shuffle order still to play. */
   private autoDeck: string[] = []
   private autoYielding = false
+  /** Where the upcoming clip starts, ms, once decided (needs its length, so it's loaded). */
+  private autoNextStartMs: number | null = null
+  /** Where each clip carries on from, ms ('continue' start). */
+  private readonly autoResume = new Map<string, number>()
   /** Set when stopping everything (or the auto-play layer) switched auto-play off. */
   private autoInterrupted = false
   /** Bumped on every state change, so the UI can be told. */
@@ -297,6 +306,7 @@ export class TriggerScheduler {
       stopOn(was.layer)
       this.autoNextPos = null
       this.autoNext = null
+      this.autoNextStartMs = null
       this.autoYielding = false
     } else {
       if (was.layer !== settings.layer) stopOn(was.layer)
@@ -304,11 +314,16 @@ export class TriggerScheduler {
       if (!was.enabled || sourceChanged || was.order !== settings.order) {
         this.autoDeck = []
         this.autoNext = null
+        this.autoNextStartMs = null
       }
       // Switching on (or moving layers) shows the first clip on the next beat.
       if (!was.enabled || was.layer !== settings.layer || this.autoNextPos === null)
         this.autoNextPos = this.firePosition(clock.position(nowMs), 'beat', clock)
-      this.autoNext ??= this.autoPick()
+      if (this.autoNext === null) {
+        this.autoNext = this.autoPick()
+        this.autoNextStartMs = null
+      }
+      this.autoCueNext(clock)
     }
     this.changed()
     return actions
@@ -326,6 +341,7 @@ export class TriggerScheduler {
     this.auto = { ...this.auto, enabled: false }
     this.autoNextPos = null
     this.autoNext = null
+    this.autoNextStartMs = null
     this.autoYielding = false
     this.autoInterrupted = true
   }
@@ -357,25 +373,56 @@ export class TriggerScheduler {
     return id
   }
 
-  /** Beats the clip stays up for. */
-  private autoBeats(clipId: string, clock: ClockView): number {
+  /** How long the clip stays up, and whether it's stretched to fit. */
+  private autoPlan(clipId: string, clock: ClockView): AutoStepPlan {
     const step = this.auto.step
-    if (step !== 'auto') return step
-    return autoStepBeats(this.clips.durationMs?.(clipId) ?? null, clock.beatsPerMs * 60000)
+    if (step !== 'auto') return { beats: step, syncBeats: null }
+    return autoStepPlan(
+      this.clips.durationMs?.(clipId) ?? null,
+      clock.beatsPerMs * 60000,
+      this.auto.longBeats ?? 16,
+    )
   }
 
-  private autoSpec(clipId: string, beats: number): PadSpec {
-    // With the 'auto' step an animated clip plays through exactly once per step.
-    const animated = (this.clips.durationMs?.(clipId) ?? null) !== null
+  /**
+   * Where in the clip to start, ms, for a clip that plays at normal speed and is longer than
+   * its step: the beginning, a random spot, or where it left off ('videoStart'). Null while its
+   * length isn't known yet (not loaded).
+   */
+  private autoStartMs(clipId: string, clock: ClockView): number | null {
+    const durationMs = this.clips.durationMs?.(clipId) ?? null
+    if (durationMs === null) return null
+    const plan = this.autoPlan(clipId, clock)
+    const shownMs = plan.beats / clock.beatsPerMs
+    const mode = this.auto.videoStart ?? 'start'
+    if (plan.syncBeats !== null || mode === 'start' || durationMs <= shownMs) return 0
+    // Whole milliseconds (a cue and its start must match exactly).
+    const room = Math.floor(durationMs - shownMs)
+    if (mode === 'random') return Math.round(this.rand() * room)
+    const from = this.autoResume.get(clipId) ?? 0
+    return from <= room ? from : 0
+  }
+
+  /** Decide where the upcoming clip starts as soon as its length is known, and cue it there. */
+  private autoCueNext(clock: ClockView): void {
+    if (this.autoNext === null || this.autoNextStartMs !== null) return
+    const startMs = this.autoStartMs(this.autoNext, clock)
+    if (startMs === null) return
+    this.autoNextStartMs = startMs
+    if (startMs > 0) this.clips.cue?.(this.autoNext, startMs)
+  }
+
+  private autoSpec(clipId: string, plan: AutoStepPlan): PadSpec {
     return {
       source: { kind: 'clip', clipId },
       mode: 'toggle',
       quantize: 'beat',
-      lengthBeats: beats,
+      lengthBeats: plan.beats,
       retriggerEvery: 'beat',
       fadeInBeats: 0,
       fadeOutBeats: 0,
-      syncBeats: this.auto.step === 'auto' && animated ? beats : null,
+      // With the 'auto' step a short clip plays through exactly once (or loops within a beat).
+      syncBeats: plan.syncBeats,
       layer: this.auto.layer,
       placement: { ...DEFAULT_PLACEMENT, fit: this.auto.fit },
       key: DEFAULT_KEY,
@@ -499,26 +546,39 @@ export class TriggerScheduler {
       } else {
         this.autoYielding = false
         const list = this.clips.autoCandidates?.(this.auto.source) ?? []
-        const clipId =
-          this.autoNext !== null && list.includes(this.autoNext) ? this.autoNext : this.autoPick()
+        const keep = this.autoNext !== null && list.includes(this.autoNext)
+        const clipId = keep ? this.autoNext : this.autoPick()
         if (clipId) {
-          const beats = this.autoBeats(clipId, clock)
+          const plan = this.autoPlan(clipId, clock)
+          const startMs =
+            (keep ? this.autoNextStartMs : null) ?? this.autoStartMs(clipId, clock) ?? 0
           // A clock that jumped ahead (or a long frame) shouldn't leave the grid behind.
           const startPos = pos - at > 1 ? clock.boundaryAtOrBefore(pos, 'beat') : at
           // The same still again (a one-clip source) just stays up; anything else restarts.
           const still = (this.clips.durationMs?.(clipId) ?? null) === null
-          if (!(still && occupant?.padId === AUTO_PAD_ID && occupant.clipId === clipId))
-            start(AUTO_PAD_ID, this.autoSpec(clipId, beats), clipId, startPos)
+          if (!(still && occupant?.padId === AUTO_PAD_ID && occupant.clipId === clipId)) {
+            start(AUTO_PAD_ID, this.autoSpec(clipId, plan), clipId, startPos)
+            const last = actions[actions.length - 1]
+            if (startMs > 0 && last?.type === 'start') last.startMs = startMs
+          }
+          if (plan.syncBeats === null)
+            this.autoResume.set(clipId, Math.round(startMs + plan.beats / clock.beatsPerMs))
           this.autoLast = clipId
-          this.autoNextPos = this.autoAfter(startPos, beats, clock)
+          this.autoNextPos = this.autoAfter(startPos, plan.beats, clock)
           this.autoNext = this.autoPick(clipId)
+          this.autoNextStartMs = null
+          this.autoCueNext(clock)
         } else {
           // Nothing to show yet (no clips, or they failed): look again on the next beat.
           this.autoNext = null
+          this.autoNextStartMs = null
           this.autoNextPos = nextBeat()
         }
       }
       this.changed()
+    } else if (this.auto.enabled) {
+      // The upcoming clip finished loading: decide where it starts and cue it there.
+      this.autoCueNext(clock)
     }
     return actions
   }

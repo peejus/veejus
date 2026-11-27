@@ -128,7 +128,7 @@ let frameBeatPos = 0
 let photoFxPick: { key: string; type: PhotoFxType } | null = null
 let photoFxTurn = 0
 
-/** Auto-play's photo effect, added to its layer's chain while it shows a still. */
+/** Auto-play's beat effect, added to its layer's chain while it shows a clip it covers. */
 function addPhotoFx(fx: Record<FxScope, ResolvedChain>): void {
   const s = scheduler.autoPlay
   const choice = s.photoFx ?? 'none'
@@ -136,7 +136,10 @@ function addPhotoFx(fx: Record<FxScope, ResolvedChain>): void {
   const cur = layers[s.layer].current
   const v = scheduler.voiceOn(s.layer)
   if (!cur || !v || cur.owner !== AUTO_PAD_ID || v.padId !== AUTO_PAD_ID) return
-  if (cur.clip.kind !== 'image' || cur.clip.frameCount > 1) return
+  const on = s.photoFxOn ?? 'stills'
+  const still = cur.clip.kind === 'image' && cur.clip.frameCount <= 1
+  const video = cur.clip.kind === 'video'
+  if (!(still || (video && on !== 'stills') || on === 'all')) return
   const key = `${cur.id}@${v.startPos}`
   if (photoFxPick?.key !== key) {
     const type = choice === 'mix' ? PHOTO_FX_TYPES[photoFxTurn++ % PHOTO_FX_TYPES.length]! : choice
@@ -272,6 +275,8 @@ const scheduler = new TriggerScheduler({
       switch (source.kind) {
         case 'images':
           return c.kind === 'image'
+        case 'videos':
+          return c.kind === 'video'
         case 'all':
           return true
         case 'collection':
@@ -287,6 +292,12 @@ const scheduler = new TriggerScheduler({
     if (!c) return null
     if (c.kind === 'video') return c.durationMs > 0 ? c.durationMs : null
     return c.frameCount > 1 ? c.timeline.totalMs : null
+  },
+  cue: (clipId, startMs) => {
+    const c = media.getReady(clipId)
+    // Never seek a clip that's on screen (a one-clip source picks the showing clip again).
+    if (c?.kind === 'video' && !LAYER_IDS.some((l) => layers[l].current?.id === clipId))
+      c.cue(startMs)
   },
 })
 
@@ -304,6 +315,9 @@ const recentActions: {
   atMs: number
   /** Scheduled beat position (starts), and the clock position on the frame it fired. */
   startPos?: number
+  /** Where in the clip it started, ms, and its tempo-sync beats (starts). */
+  startMs?: number
+  syncBeats?: number | null
   posAtFire: number
 }[] = []
 let triggerVersionSent = -1
@@ -322,7 +336,14 @@ function applyTriggerActions(actions: TriggerAction[], now: number): void {
       padId: a.padId,
       atMs: now,
       posAtFire: beat.clock.position(now),
-      ...(a.type === 'start' ? { clipId: a.clipId, startPos: a.startPos } : {}),
+      ...(a.type === 'start'
+        ? {
+            clipId: a.clipId,
+            startPos: a.startPos,
+            startMs: a.startMs ?? 0,
+            syncBeats: a.spec.syncBeats,
+          }
+        : {}),
     })
     if (recentActions.length > 64) recentActions.shift()
     const layer = layers[a.layer]
@@ -333,6 +354,7 @@ function applyTriggerActions(actions: TriggerAction[], now: number): void {
           loop: a.spec.mode !== 'oneShot',
           placement: a.spec.placement,
           key: a.spec.key,
+          startMs: a.startMs ?? 0,
         })
         break
       case 'restart':
@@ -773,6 +795,9 @@ function frame(now: number): void {
               paused: l.isPaused,
               transform: l.lastTransform,
               opacity: layerOpacity(id, now, takeover),
+              videoTime: l.current?.clip.kind === 'video' ? l.current.clip.el.currentTime : null,
+              playbackRate:
+                l.current?.clip.kind === 'video' ? l.current.clip.el.playbackRate : null,
             },
           ]
         }),
