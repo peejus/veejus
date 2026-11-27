@@ -32,14 +32,21 @@ export function ClipInspector({ clip, settings, onChange, library, onPlay, onSto
   const probe = library.probes[clip.id]
   const playing = library.clips.find((c) => c.id === library.playingId)
   const last = library.lastStart
-  const broken =
-    library.outputStates[clip.id]?.state === 'error' || (probe !== undefined && !probe.ok)
+  const out = library.outputStates[clip.id]
+  const error =
+    out?.state === 'error' ? (out.error ?? 'Error') : probe && !probe.ok ? probe.error : null
+  const broken = error !== null
   const videoMs = clip.kind === 'video' && probe?.ok ? (probe.meta.durationMs ?? 0) : 0
   return (
     <div className="clip-inspector" data-testid="clip-inspector">
       <h2 className="clip-title" title={clip.path}>
         {clip.name}
       </h2>
+      {error && (
+        <p className="error-text" data-testid="clip-error">
+          Can’t play this clip: {error}
+        </p>
+      )}
       {probe?.ok && !(videoMs > 0) && (
         <div className="clip-thumb">
           <img src={probe.meta.thumbUrl} alt="" />

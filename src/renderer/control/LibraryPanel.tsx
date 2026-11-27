@@ -194,7 +194,13 @@ const Pad = memo(function Pad({
         <div className="pad-caption">
           <div className="pad-name">{clip.name}</div>
           <div className="pad-meta">
-            {error ? <span className="pad-error">{error}</span> : metaLine(clip, probe)}
+            {error ? (
+              <span className="pad-error" title={error}>
+                {error}
+              </span>
+            ) : (
+              metaLine(clip, probe)
+            )}
           </div>
         </div>
       </div>

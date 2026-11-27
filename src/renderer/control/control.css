@@ -2736,3 +2736,8 @@ button.slider-value:disabled {
 .grid-pad.empty .pad-key {
   opacity: 0.6;
 }
+
+/* Setup → Diagnostics: hardware video decoding. */
+.video-decode {
+  margin: 14px 0 10px;
+}

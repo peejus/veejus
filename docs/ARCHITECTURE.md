@@ -28,7 +28,7 @@
 - Chromium switches set in main:
   - `disable-media-suspend`: keeps paused, preloaded video players decoded.
   - `autoplay-policy=no-user-gesture-required`.
-  - `disable-accelerated-video-decode`: software decoding. Hardware decoder start-up stalls the GPU process. Opt back in with `VEEJUS_HW_VIDEO_DECODE=1`.
+  - `disable-accelerated-video-decode`: software decoding. Hardware decoder start-up stalls the GPU process. Turned off by the saved setting `hardwareVideoDecode` in `<userData>/settings.json` (Setup → Diagnostics, read at startup by `src/main/appSettings.ts`), or for one run with `VEEJUS_HW_VIDEO_DECODE=1`/`0`. HEVC needs it on a Mac; when a video fails, `src/shared/videoCodec.ts` reads the codec from the MP4/MOV header (Range requests on the media URL) to say why.
 
 ## Media pipeline
 

@@ -137,7 +137,15 @@ The stress test is skipped until `npm run fixtures:stress` has been run once.
 
 ### Video decoding
 
-Veejus decodes video in software by default, because starting hardware decoders stalls the output for a frame or more each time a clip preloads. To try hardware decoding, start it with the environment variable `VEEJUS_HW_VIDEO_DECODE=1`.
+Veejus decodes video in software by default, because starting hardware decoders stalls the output for a frame or more each time a clip preloads. H.264, VP8/VP9 and AV1 play this way.
+
+**HEVC (H.265)** videos, such as iPhone footage and many camera and editor exports, need hardware decoding. They show _HEVC (H.265) video needs hardware decoding_. Turn on **⚙ Setup → Diagnostics → Hardware video decoding** and restart Veejus (the **Restart now** button reopens your set), or convert the file to H.264:
+
+```bash
+ffmpeg -i in.mp4 -c:v libx264 -crf 18 -c:a copy out.mp4
+```
+
+The environment variable `VEEJUS_HW_VIDEO_DECODE=1` (or `0`) overrides the setting for one run. **ProRes** can't be played at all; convert it to H.264.
 
 ## Installing (macOS)
 

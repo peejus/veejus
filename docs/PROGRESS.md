@@ -1887,3 +1887,24 @@ Asked for: Phase B of the video plan: per-clip in/out trim, and pad options for 
 2. Press **▶ Play on Background**: only that part loops. Save the set, open it again: the trim is still there.
 3. Put the video on a pad, set mode **Toggle loop**, **Start at** a random spot and **Beat loop** 1 beat. Fire it: it stutters on one spot, on the beat. Fire again elsewhere: a new spot.
 4. Set the pad to **Retrigger** with a random start: each beat jumps to a new place.
+
+## HEVC videos and hardware decoding (2026-11-27)
+
+Some videos showed "Video has no picture track". They were HEVC (H.265). With the default software decoding, Chromium on a Mac can't decode HEVC: a file with audio loads its sound but no picture, and one without audio is "unsupported".
+
+### What changed
+
+- **Setup → Diagnostics → Hardware video decoding** (off by default). It is saved in `settings.json` in the profile folder and read at startup, because the Chromium switch must be set before the app is ready. A change shows _Turns on when Veejus restarts_ with a **Restart now** button; the session autosave reopens the set. `VEEJUS_HW_VIDEO_DECODE=1`/`0` still overrides it for one run, and the switch then shows as set by the variable.
+- **Clearer errors.** When a video won't load, the library preview and the output read the codec from the MP4/MOV header (`src/shared/videoCodec.ts`: box headers plus the `moov`, by Range requests, not the media). HEVC says _HEVC (H.265) video needs hardware decoding: turn it on in Setup → Diagnostics, or convert the file to H.264_; ProRes says to convert it. Other failures keep their old messages.
+- The selected clip's panel now shows the full error (a pad's caption cuts it off; hovering the pad shows it too).
+
+### Tests
+
+- Unit (`tests/unit/videoCodec.test.ts`, 7 tests): finding the video track's codec in built and real files (HEVC MOV with the header at the end, H.264 MP4, ProRes MOV) without reading the media, giving up on non-MP4 files, the messages, and the saved setting and its environment override.
+- End-to-end (`tests/e2e/videoDecode.spec.ts`, 4 tests): an HEVC clip and the ProRes fixture explain themselves by default; turning the switch on shows the restart note and is remembered after a restart; with it on, the HEVC clip loads and plays; and the environment variable overrides the switch.
+- New fixture: `fixtures/codecs/hevc-audio.mov` (165 KB).
+
+### Known limits
+
+- The **Restart now** button isn't covered by a test, since the relaunched app would be outside Playwright's control.
+- Hardware decoding brings back the preload hitches measured in Phase 1 (1–3 frames per video preload), for all videos, not only HEVC.

@@ -321,6 +321,12 @@ export type MainRequest =
   | { type: 'listRecentSets' }
   /** Look for missing clips by file name in a folder (ask which when null). */
   | { type: 'relink'; folder: string | null; clips: { id: string; name: string }[] }
+  /** Whether video is decoded on the GPU, now and after the next restart. */
+  | { type: 'getVideoDecode' }
+  /** Save the hardware video decoding setting; it applies after a restart. */
+  | { type: 'setVideoDecode'; hardware: boolean }
+  /** Quit and start again (to apply settings such as hardware video decoding). */
+  | { type: 'relaunch' }
 
 export interface ImportResult {
   added: number
@@ -346,9 +352,19 @@ export type MainResponse =
   | { type: 'noSession' }
   | { type: 'recentSets'; sets: RecentSet[] }
   | { type: 'relinked'; idMap: Record<string, string>; missing: string[] }
+  | { type: 'videoDecode'; state: VideoDecodeState }
   | { type: 'canceled' }
   | { type: 'ok' }
   | { type: 'error'; message: string }
+
+export interface VideoDecodeState {
+  /** Hardware decoding is on in this run. */
+  active: boolean
+  /** The saved setting, used from the next start. */
+  saved: boolean
+  /** VEEJUS_HW_VIDEO_DECODE is set, so it decides instead of the saved setting. */
+  forced: boolean
+}
 
 export interface RecentSet {
   path: string
@@ -596,7 +612,11 @@ export function isMainRequest(v: unknown): v is MainRequest {
     case 'newSet':
     case 'restoreSession':
     case 'listRecentSets':
+    case 'getVideoDecode':
+    case 'relaunch':
       return true
+    case 'setVideoDecode':
+      return typeof v.hardware === 'boolean'
     case 'autosave':
       return (
         checkSet(v.set).ok &&

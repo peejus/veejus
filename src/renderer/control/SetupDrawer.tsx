@@ -4,6 +4,7 @@ import { ClockSettings, ClockSourcePicker } from './BeatPanel'
 import { MidiSetup } from './MidiSetup'
 import { FULLSCREEN_KEY } from './platform'
 import { ShortcutList } from './ShortcutSheet'
+import { VideoDecodeSetting } from './VideoDecodeSetting'
 import {
   ASPECTS,
   ASPECT_LABELS,
@@ -274,6 +275,7 @@ function Diagnostics(p: {
         the output
       </label>
       <p className="hint">The overlay is drawn over the show, so the audience sees it.</p>
+      <VideoDecodeSetting />
       <dl className="facts">
         <dt>IPC ping</dt>
         <dd data-testid="ping-ms">IPC {p.pingMs !== null ? `${p.pingMs.toFixed(1)} ms` : '--'}</dd>
