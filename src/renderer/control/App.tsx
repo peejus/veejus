@@ -581,7 +581,14 @@ export function App() {
         />
       </div>
 
-      {keys.open && <ShortcutSheet onClose={() => keys.setOpen(false)} />}
+      {keys.open && (
+        <ShortcutSheet
+          onClose={() => keys.setOpen(false)}
+          pads={pads}
+          clips={library.clips}
+          bindings={midi.settings.bindings}
+        />
+      )}
       {error && (
         <div className="error-banner" role="alert">
           {error}

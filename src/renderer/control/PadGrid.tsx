@@ -25,7 +25,7 @@ import type { PadRef, PadsLink } from './usePads'
 export const CLIP_DRAG_TYPE = 'application/x-veejus-clip'
 
 /** A small glyph per play mode; the tooltip spells it out. */
-function modeIcon(config: PadConfig): string {
+export function modeIcon(config: PadConfig): string {
   switch (config.mode) {
     case 'oneShot':
       return '▶'
@@ -40,10 +40,10 @@ function modeIcon(config: PadConfig): string {
   }
 }
 
-const resolvedLayer = (config: PadConfig): LayerId =>
+export const resolvedLayer = (config: PadConfig): LayerId =>
   config.layer === 'auto' ? autoLayer(config.mode, false) : config.layer
 
-function sourceLabel(config: PadConfig, clips: Map<string, ClipInfo>): string {
+export function sourceLabel(config: PadConfig, clips: Map<string, ClipInfo>): string {
   const s = config.source
   if (!s) return ''
   switch (s.kind) {

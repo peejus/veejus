@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { NUDGE_MS } from '@shared/beat'
+import { LAYER_NAMES } from '@shared/layers'
+import type { MidiBinding } from '@shared/midi'
+import { BANK_NAMES, PAD_COLS, PAD_KEY_LABELS, PLAY_MODE_LABELS, padId } from '@shared/pads'
+import type { ClipInfo } from '@shared/protocol'
+import { LAYER_COLORS } from './layerColors'
+import { modeIcon, resolvedLayer, sourceLabel } from './PadGrid'
 import { FULLSCREEN_KEY, isMac } from './platform'
+import type { PadsLink } from './usePads'
 
 const GROUPS: { title: string; keys?: false; rows: [string, string][] }[] = [
   {
@@ -24,7 +31,7 @@ const GROUPS: { title: string; keys?: false; rows: [string, string][] }[] = [
     title: 'Show',
     rows: [
       ['`', 'Blackout on / off'],
-      ['P', 'Auto-play on / off (steps through your images and GIFs on the beat)'],
+      ['P', 'Auto-play on / off (steps through your clips on the beat)'],
       ['Esc (output window)', 'Leave fullscreen'],
       [`${FULLSCREEN_KEY} (output window)`, 'Toggle fullscreen'],
     ],
@@ -76,7 +83,115 @@ export function useShortcutSheet(): { open: boolean; setOpen(open: boolean): voi
   return { open, setOpen }
 }
 
-export function ShortcutSheet({ onClose }: { onClose(): void }) {
+const bankKey = (bank: number) => `${isMac ? 'fn + ' : ''}F${bank + 1}`
+
+/** "Note 36" / "CC 7" for the MIDI controls mapped to a pad slot (any device, any channel). */
+function midiFor(index: number, bindings: readonly MidiBinding[]): string | null {
+  const found = bindings.filter((b) => b.target.kind === 'pad' && b.target.index === index)
+  if (found.length === 0) return null
+  return found.map((b) => `${b.type === 'note' ? 'Note' : 'CC'} ${b.number}`).join(', ')
+}
+
+/**
+ * Every pad that has something on it, by bank: its key, what it plays, how, on which layer,
+ * and any MIDI control mapped to it. The current bank comes first; click a row to edit the pad.
+ */
+export function YourPads(p: {
+  pads: PadsLink
+  clips: ClipInfo[]
+  bindings: readonly MidiBinding[]
+  onEdit(): void
+}) {
+  const clipMap = new Map(p.clips.map((c) => [c.id, c]))
+  const order = [p.pads.bank, ...p.pads.banks.map((_, i) => i).filter((i) => i !== p.pads.bank)]
+  const banks = order
+    .map((bank) => ({
+      bank,
+      loaded: p.pads.banks[bank]!.map((config, index) => ({ config, index })).filter(
+        (x) => x.config.source !== null,
+      ),
+    }))
+    .filter((b) => b.loaded.length > 0)
+
+  return (
+    <section className="your-pads" data-testid="your-pads">
+      <h3>Your pads</h3>
+      {banks.length === 0 ? (
+        <p className="hint">
+          No pads loaded yet. Drag library clips onto the pads, or press Auto-fill, and their keys
+          show up here.
+        </p>
+      ) : (
+        banks.map(({ bank, loaded }) => {
+          const current = bank === p.pads.bank
+          return (
+            <div key={bank} className={`your-pads-bank${current ? ' current' : ''}`}>
+              <h4>
+                Bank {BANK_NAMES[bank]}{' '}
+                {current ? (
+                  <span className="hint">· showing now</span>
+                ) : (
+                  <span className="hint">
+                    · press <kbd>{bankKey(bank)}</kbd> first
+                  </span>
+                )}
+              </h4>
+              <ul>
+                {loaded.map(({ config, index }) => {
+                  const id = padId(bank, index)
+                  const key = PAD_KEY_LABELS[Math.floor(index / PAD_COLS)]![index % PAD_COLS]!
+                  const layer = resolvedLayer(config)
+                  const midi = midiFor(index, p.bindings)
+                  const name = sourceLabel(config, clipMap)
+                  return (
+                    <li key={id}>
+                      <button
+                        className="your-pad"
+                        data-pad-row={id}
+                        title={`Edit pad ${id}`}
+                        style={{ '--layer-color': LAYER_COLORS[layer] } as CSSProperties}
+                        onClick={() => {
+                          if (!current) p.pads.setBank(bank)
+                          p.pads.select({ bank, index })
+                          p.onEdit()
+                        }}
+                      >
+                        <kbd>{key}</kbd>
+                        <span className="your-pad-name">{name}</span>
+                        <span
+                          className="your-pad-how"
+                          title={`${PLAY_MODE_LABELS[config.mode]} on ${LAYER_NAMES[layer]}`}
+                        >
+                          <span className="your-pad-mode" aria-hidden="true">
+                            {modeIcon(config)}
+                          </span>{' '}
+                          {PLAY_MODE_LABELS[config.mode]} · {LAYER_NAMES[layer]}
+                        </span>
+                        {midi && <span className="your-pad-midi">MIDI {midi}</span>}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )
+        })
+      )}
+    </section>
+  )
+}
+
+export function ShortcutSheet({
+  onClose,
+  pads,
+  clips,
+  bindings,
+}: {
+  onClose(): void
+  pads?: PadsLink
+  clips?: ClipInfo[]
+  bindings?: readonly MidiBinding[]
+}) {
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div
@@ -92,6 +207,9 @@ export function ShortcutSheet({ onClose }: { onClose(): void }) {
             ✕
           </button>
         </div>
+        {pads && (
+          <YourPads pads={pads} clips={clips ?? []} bindings={bindings ?? []} onEdit={onClose} />
+        )}
         <ShortcutList />
         <p className="hint">
           Keys don’t fire pads while you’re typing in a field; click an empty spot first.
