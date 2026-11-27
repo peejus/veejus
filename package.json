@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "icon": "rsvg-convert -w 1024 -h 1024 build/icon.svg -o build/icon.png",
     "test:unit": "vitest run",
     "test:e2e": "electron-vite build && playwright test",
     "test": "npm run test:unit && npm run test:e2e",
